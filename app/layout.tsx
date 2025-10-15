@@ -7,9 +7,11 @@ import { ThemeProvider } from '@/components/theme-provider'
 import { ModeToggle } from '@/components/theme-toggle'
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.app',
+  title: 'Chord Chart Transposer',
+  description: 'By Jason Agung',
+  icons: {
+    icon: '/logo.png',
+  },
 }
 
 export default function RootLayout({
