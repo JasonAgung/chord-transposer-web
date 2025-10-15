@@ -15,6 +15,7 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import jsPDF from "jspdf"
+import { ModeToggle } from "@/components/theme-toggle"
 
 // Utilities
 const KEYS = getAllKeys()
@@ -229,6 +230,13 @@ Chorus :
 
   return (
     <section className="space-y-6">
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Chord Chart Transposer</h1>
+          <p className="text-sm pt-2 text-muted-foreground">From an MD to fellow MDs (i love MD(s))</p>
+        </div>
+        <ModeToggle />
+      </header>
       <Card>
         <CardHeader>
           <CardTitle className="text-foreground">Chart Settings</CardTitle>
@@ -309,14 +317,14 @@ Chorus :
                       -1
                     </Button>
                     <Button variant="secondary" onClick={() => quickTransposeHalf(1)} className="rounded-none border-l">
-                      +½
+                      +<span className="-translate-y-px"><sup>1</sup>&frasl;<sub>2</sub></span>
                     </Button>
                     <Button
                       variant="secondary"
                       onClick={() => quickTransposeHalf(-1)}
                       className="rounded-none border-l"
                     >
-                      -½
+                      -<span className="-translate-y-px"><sup>1</sup>&frasl;<sub>2</sub></span>
                     </Button>
                   </div>
                 </div>
