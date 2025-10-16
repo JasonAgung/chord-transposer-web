@@ -14,7 +14,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
-import jsPDF from "jspdf"
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib"
 import { ModeToggle } from "@/components/theme-toggle"
 
 // Utilities
@@ -112,73 +112,93 @@ Chorus :
     setTransposed(converted)
   }
 
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
     const content = transposed || original
     if (!content) return
 
-    // Apply smart formatting before export
-    const formatted = formatter.formatChart(content)
-    const doc = new jsPDF({
-      orientation: orientation,
-      unit: "pt",
-      format: "letter",
-      compress: true,
-    })
+    const pdfDoc = await PDFDocument.create()
+    let page = pdfDoc.addPage()
 
-    const pageWidth = doc.internal.pageSize.getWidth()
-    const pageHeight = doc.internal.pageSize.getHeight()
-    const margin = 48
-    const usableWidth = pageWidth - margin * 2
+    let { width, height } = page.getSize()
+    if (orientation === "landscape") {
+      page.setSize(height, width)
+      ;[width, height] = [height, width]
+    }
+    const margin = 50
+    const usableWidth = width - margin * 2
 
-    // Header
-    doc.setFont("helvetica", "bold")
-    doc.setFontSize(14)
-    doc.text(title || "Chord Chart", margin, margin)
-    doc.setFont("courier", "normal")
-    doc.setFontSize(11)
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
 
-    const lines = formatted.split("\n")
+    const drawFooter = (page: any, width: number, pageNum: number, totalPages: number) => {
+      const footerText = `Page ${pageNum} of ${totalPages}`
+      const textWidth = boldFont.widthOfTextAtSize(footerText, 8)
+      page.drawText(footerText, {
+        x: width - margin - textWidth,
+        y: margin - 20,
+        font: boldFont,
+        size: 8,
+        color: rgb(0.5, 0.5, 0.5),
+      })
+    }
 
-    const writeColumn = (x: number, startY: number, textLines: string[]) => {
-      let y = startY
-      const lineHeight = 16
-      const maxY = pageHeight - margin
+    const lines = content.split("\n")
+    const lineHeight = 14
+    const columnGap = 20
 
-      for (const raw of textLines) {
-        const chunks = doc.splitTextToSize(raw || " ", usableWidth / (twoColumns ? 2 : 1) - 8)
-        for (const chunk of chunks) {
-          if (y + lineHeight > maxY) {
-            doc.addPage()
-            // new page header
-            doc.setFont("helvetica", "bold")
-            doc.setFontSize(14)
-            doc.text(title || "Chord Chart", margin, margin)
-            doc.setFont("courier", "normal")
-            doc.setFontSize(11)
-            y = margin + 28
+    let currentX = margin
+    let currentY = height - margin
+    const colWidth = twoColumns && orientation === "landscape" ? usableWidth / 2 - columnGap / 2 : usableWidth
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+
+      if (currentY < margin) {
+        if (twoColumns && orientation === "landscape" && currentX === margin) {
+          currentX = margin + colWidth + columnGap
+          currentY = height - margin
+        } else {
+          drawFooter(page, width, pdfDoc.getPageCount(), pdfDoc.getPageCount())
+          page = pdfDoc.addPage()
+          if (orientation === "landscape") {
+            page.setSize(height, width)
           }
-          doc.text(chunk, x, y)
-          y += lineHeight
+          currentX = margin
+          currentY = height - margin
         }
       }
-      return y
+
+      const isTitle = i === 0
+      const isMetadata = line.match(/^(Do\s*=|Time\s*Signature\s*=|Tempo\s*.*=|Structure\s*=)/)
+      const isSectionHeader = line.match(/^([\w\s-]+:)/)
+
+      if (isSectionHeader) {
+        currentY -= lineHeight / 2
+      }
+
+      page.drawText(line, {
+        x: currentX,
+        y: currentY,
+        font: isTitle || isSectionHeader ? boldFont : font,
+        size: isTitle ? 15 : 10,
+        color: isMetadata ? rgb(0.5, 0.5, 0.5) : rgb(0, 0, 0),
+        maxWidth: colWidth,
+      })
+      currentY -= isTitle ? 24 : lineHeight
     }
+    drawFooter(page, width, pdfDoc.getPageCount(), pdfDoc.getPageCount())
 
-    if (twoColumns && orientation === "landscape") {
-      const midX = margin + usableWidth / 2
-      const halfLines = Math.ceil(lines.length / 2)
-      const col1 = lines.slice(0, halfLines)
-      const col2 = lines.slice(halfLines)
+    const pdfBytes = await pdfDoc.save()
+    const blob = new Blob([pdfBytes.slice().buffer], { type: "application/pdf" })
+    const link = document.createElement("a")
+    link.href = URL.createObjectURL(blob)
+    link.download = `${(title || "chord-chart").toLowerCase().replace(/\s+/g, "-")}.pdf`
+    link.click()
+  }
 
-      const startY = margin + 28
-      writeColumn(margin, startY, col1)
-      writeColumn(midX, startY, col2)
-    } else {
-      const startY = margin + 28
-      writeColumn(margin, startY, lines)
-    }
-
-    doc.save(`${(title || "chord-chart").toLowerCase().replace(/\s+/g, "-")}.pdf`)
+  const extractTitleFromContent = (content: string): string | null => {
+    const titleMatch = content.match(/^\s*(\[.*\]\.\s*.*)/)
+    return titleMatch ? titleMatch[1].trim() : null
   }
 
   const loadTemplate34 = () => {
