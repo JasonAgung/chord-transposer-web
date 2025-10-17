@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState, MouseEvent, ChangeEvent } from "react"
 import { detectKeyFromContent, getAllKeys, transposeChart, shiftNoteBySemitones, shouldUseFlats } from "@/lib/chords"
 import { SmartFormatter } from "@/lib/formatter"
 import { NumberedChordConverter } from "@/lib/numbered"
@@ -15,7 +15,12 @@ import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib"
+import Link from "next/link"
 import { ModeToggle } from "@/components/theme-toggle"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+
+import { useStore } from "@/lib/store"
 
 // Utilities
 const KEYS = getAllKeys()
@@ -23,47 +28,38 @@ const formatter = new SmartFormatter()
 const numberer = new NumberedChordConverter()
 
 export default function ChordTransposer() {
-  const [original, setOriginal] = useState<string>(
-    "" +
-      `[Song Number]. [Song Title] ([Source/Book Reference])
-Do = C
-Time Signature = 4/4
-Tempo (1/4) = 100 BPM
-Structure = Intro, Verse, Chorus
+  const { original, transposed, currentKey, targetKey, title, orientation, numbersStyle, timeSignature, setOriginal, setTransposed, setCurrentKey, setTargetKey, setTitle, setOrientation, setNumbersStyle, setTimeSignature } = useStore()
 
-Intro :
-| C . . . | F . . . | G . . . | C . . . |
-
-Verse :
-| C . . . | Am . . . | F . . . | G . . . |
-| C . . . | Am . . . | F . . . | G . . . |
-
-Chorus :
-| F . . . | G . . . | C . . . | C . . . |
-| F . . . | G . . . | C . . . | C . . . |`,
-  )
-  const [transposed, setTransposed] = useState<string>("")
-  const [currentKey, setCurrentKey] = useState<string>("")
-  const [targetKey, setTargetKey] = useState<string>("")
-  const [title, setTitle] = useState<string>("Chord Chart")
-  const [orientation, setOrientation] = useState<"portrait" | "landscape">("portrait")
-  const [twoColumns, setTwoColumns] = useState<boolean>(false)
-  const [numbersStyle, setNumbersStyle] = useState<"default" | "roman" | "arabic">("default")
-  const [timeSignature, setTimeSignature] = useState<"4/4" | "3/4">("4/4")
-
-  // Detect key and time signature whenever content changes
-  useMemo(() => {
+  useEffect(() => {
     const k = detectKeyFromContent(original)
-    setCurrentKey(k || "")
-    if (!targetKey && k) {
+    if (k && k !== currentKey) {
+      setCurrentKey(k)
       setTargetKey(k)
     }
     const sigMatch = original.match(/Time\s*Signature\s*=\s*(\d+\/\d+)/i)
     if (sigMatch) {
       const sig = sigMatch[1] === "3/4" ? "3/4" : "4/4"
-      setTimeSignature(sig)
+      if (sig !== timeSignature) {
+        setTimeSignature(sig)
+      }
     }
-  }, [original]) // eslint-disable-line
+  }, [original, currentKey, targetKey, timeSignature, setCurrentKey, setTargetKey, setTimeSignature])
+
+  const [titleManuallyEdited, setTitleManuallyEdited] = useState(false);
+
+  useEffect(() => {
+    if (!titleManuallyEdited) {
+      const firstLine = original.split('\n')[0];
+      setTitle(firstLine);
+    }
+  }, [original, setTitle, titleManuallyEdited]);
+
+  const handleTitleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setTitleManuallyEdited(true);
+    setTitle(e.target.value);
+  };
+
+
 
   const handleSmartFormat = () => {
     const formattedOriginal = formatter.formatChart(original)
@@ -72,29 +68,36 @@ Chorus :
     if (formattedTransposed) setTransposed(formattedTransposed)
   }
 
-  const handleTranspose = () => {
-    if (!currentKey || !targetKey) return
+  const handleTranspose = (newTargetKey?: string | MouseEvent) => {
+    const detectedKey = detectKeyFromContent(original)
+    const finalTargetKey = typeof newTargetKey === 'string' ? newTargetKey : targetKey
+    if (!detectedKey || !finalTargetKey) return
+    setCurrentKey(detectedKey)
     const content = original
-    const result = transposeChart(content, currentKey, targetKey)
+    const result = transposeChart(content, detectedKey, finalTargetKey)
     setTransposed(result)
   }
 
   const quickTransposeWhole = (steps: number) => {
-    if (!currentKey && !targetKey) return
-    const base = targetKey || currentKey
+    const detectedKey = detectKeyFromContent(original)
+    if (!detectedKey && !targetKey) return
+    const base = targetKey || detectedKey
+    if (!base) return
     // shift by whole steps = 2 semitones
     const semitones = steps * 2
     const shiftedKey = shiftKey(base, semitones)
     setTargetKey(shiftedKey)
-    setTimeout(handleTranspose, 0)
+    handleTranspose(shiftedKey)
   }
 
   const quickTransposeHalf = (steps: number) => {
-    if (!currentKey && !targetKey) return
-    const base = targetKey || currentKey
+    const detectedKey = detectKeyFromContent(original)
+    if (!detectedKey && !targetKey) return
+    const base = targetKey || detectedKey
+    if (!base) return
     const shiftedKey = shiftKey(base, steps)
     setTargetKey(shiftedKey)
-    setTimeout(handleTranspose, 0)
+    handleTranspose(shiftedKey)
   }
 
   function shiftKey(key: string, semitones: number) {
@@ -106,7 +109,7 @@ Chorus :
     const base = original
     if (!base) return
     const detected = detectKeyFromContent(base || "")
-    const key = detected || targetKey || currentKey
+    const key = detected || targetKey
     if (!key) return
     const converted = numberer.convertChartToSystem(base, key, numbersStyle)
     setTransposed(converted)
@@ -131,15 +134,7 @@ Chorus :
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
 
     const drawFooter = (page: any, width: number, pageNum: number, totalPages: number) => {
-      const footerText = `Page ${pageNum} of ${totalPages}`
-      const textWidth = boldFont.widthOfTextAtSize(footerText, 8)
-      page.drawText(footerText, {
-        x: width - margin - textWidth,
-        y: margin - 20,
-        font: boldFont,
-        size: 8,
-        color: rgb(0.5, 0.5, 0.5),
-      })
+      // No footer
     }
 
     const lines = content.split("\n")
@@ -148,26 +143,25 @@ Chorus :
 
     let currentX = margin
     let currentY = height - margin
-    const colWidth = twoColumns && orientation === "landscape" ? usableWidth / 2 - columnGap / 2 : usableWidth
+    const colWidth = orientation === "landscape" ? usableWidth / 2 - columnGap / 2 : usableWidth
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
 
-      if (currentY < margin) {
-        if (twoColumns && orientation === "landscape" && currentX === margin) {
-          currentX = margin + colWidth + columnGap
-          currentY = height - margin
-        } else {
-          drawFooter(page, width, pdfDoc.getPageCount(), pdfDoc.getPageCount())
-          page = pdfDoc.addPage()
-          if (orientation === "landscape") {
-            page.setSize(height, width)
-          }
-          currentX = margin
-          currentY = height - margin
-        }
-      }
-
+              if (currentY < margin) {
+                if (orientation === "landscape" && currentX === margin) {
+                  currentX = margin + colWidth + columnGap
+                  currentY = height - margin
+                } else {
+                  drawFooter(page, width, pdfDoc.getPageCount(), pdfDoc.getPageCount())
+                  page = pdfDoc.addPage()
+                  if (orientation === "landscape") {
+                    page.setSize(width, height)
+                  }
+                  currentX = margin
+                  currentY = height - margin
+                }
+              }
       const isTitle = i === 0
       const isMetadata = line.match(/^(Do\s*=|Time\s*Signature\s*=|Tempo\s*.*=|Structure\s*=)/)
       const isSectionHeader = line.match(/^([\w\s-]+:)/)
@@ -265,7 +259,7 @@ Chorus :
           {/* Title */}
           <div className="flex flex-col gap-2">
             <Label htmlFor="title">Title</Label>
-            <Input id="title" placeholder="Chord Chart" value={title} onChange={(e) => setTitle(e.target.value)} />
+            <Input id="title" placeholder="Chord Chart" value={title} onChange={handleTitleChange} />
           </div>
 
           {/* Detected Key */}
@@ -382,7 +376,7 @@ Chorus :
             </div>
 
             {/* PDF + Format */}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="flex flex-col gap-2">
                 <Label htmlFor="orientation">PDF Orientation</Label>
                 <Select value={orientation} onValueChange={(v: "portrait" | "landscape") => setOrientation(v)}>
@@ -394,12 +388,6 @@ Chorus :
                     <SelectItem value="landscape">Landscape</SelectItem>
                   </SelectContent>
                 </Select>
-                <div className="flex items-center justify-between rounded-md border p-2">
-                  <Label htmlFor="twoColumns" className="text-sm">
-                    Two Columns (landscape)
-                  </Label>
-                  <Switch id="twoColumns" checked={twoColumns} onCheckedChange={setTwoColumns} />
-                </div>
               </div>
 
               <div className="flex items-end gap-2">
@@ -413,6 +401,20 @@ Chorus :
                   Export PDF
                 </Button>
               </div>
+              
+              <div className="flex items-end gap-2">
+                <Link href="/advanced-export" className="w-full">
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => {
+                      localStorage.setItem("chordChartContent", transposed || original)
+                    }}
+                  >
+                    Advanced Export
+                  </Button>
+                </Link>
+              </div>
             </div>
           </div>
         </CardContent>
@@ -420,8 +422,131 @@ Chorus :
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle className="text-foreground">Original</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-foreground h-1 flex items-center">Original</CardTitle>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="secondary">Tips</Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>How to Write a Chord Chart</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                 <div>
+                    <h3 className="font-semibold">1. Start with a Template 🚀</h3>
+                    <p>To get started, follow the template given by your desired time signature, then fill in the essential song information at the top of the file. ✍️</p>
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">2. Write Your Chord Progressions 🎸</h3>
+                    <p>Chord lines are written inside measures (or bars) separated by the | symbol. Inside each measure, write the chord name and use dots (.) to represent the remaining beats. Try to stick to a maximum of 4 bars per line for a clean layout. 📏</p>
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">3. Chord Notation Guide 📖</h3>
+                    <p>The program recognizes a wide variety of chords! Use the following format to ensure they are processed correctly ✅. Here is a table summarizing how to write various chord types that the program will recognize.</p>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Chord Type</TableHead>
+                          <TableHead>How to Write</TableHead>
+                          <TableHead>Examples</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        <TableRow>
+                          <TableCell>Major</TableCell>
+                          <TableCell>Just the root note</TableCell>
+                          <TableCell>C, F, A#</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Minor</TableCell>
+                          <TableCell>Root + m</TableCell>
+                          <TableCell>Am, Dm, G#m</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Dominant 7th</TableCell>
+                          <TableCell>Root + 7</TableCell>
+                          <TableCell>G7, C7, F#7</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Major 7th</TableCell>
+                          <TableCell>Root + M7 or maj7</TableCell>
+                          <TableCell>CM7, Fmaj7</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Minor 7th</TableCell>
+                          <TableCell>Root + m7</TableCell>
+                          <TableCell>Dm7, Am7, Ebm7</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Suspended</TableCell>
+                          <TableCell>Root + sus + Number</TableCell>
+                          <TableCell>Csus4, Gsus2</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Add</TableCell>
+                          <TableCell>Root + add + Number</TableCell>
+                          <TableCell>Cadd9, Gadd11</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Diminished</TableCell>
+                          <TableCell>Root + dim</TableCell>
+                          <TableCell>Bdim, C#dim</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Augmented</TableCell>
+                          <TableCell>Root + aug</TableCell>
+                          <TableCell>Caug, Gaug</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Slash Chord</TableCell>
+                          <TableCell>Chord + / + Bass Note</TableCell>
+                          <TableCell>G/B, Am/G, D/F#</TableCell>
+                        </TableRow>
+                        <TableRow>
+                          <TableCell>Complex Chord</TableCell>
+                          <TableCell>A combination of the above</TableCell>
+                          <TableCell>Am7/G, Cmaj9</TableCell>
+                        </TableRow>
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <br></br>
+                  <div>
+                    <h3 className="font-semibold">4. Finalize Your Chart 🎶</h3>
+                    <p>Once your chart is written, use these tools to finish up:</p>
+                    <ol className="list-decimal list-inside space-y-2">
+                      <li>
+                        <strong>✨ Format Your Chart</strong>
+                        <ul className="list-disc list-inside pl-4">
+                          <li>Use the <strong>Smart Format</strong> button to automatically clean up spacing and align all the bars vertically for a professional look.</li>
+                          <li><strong>Note</strong>: For perfect alignment, this feature requires a monospaced font (like Courier).</li>
+                        </ul>
+                      </li>
+                      <li>
+                        <strong>🔄 Transpose to a New Key</strong>
+                        <ul className="list-disc list-inside pl-4">
+                          <li>Select a <strong>Target Key</strong> from the dropdown menu.</li>
+                          <li>Click the <strong>Transpose</strong> button. The transposed version will appear in the right-hand panel.</li>
+                        </ul>
+                      </li>
+                      <li>
+                        <strong>💾 Save and Export</strong>
+                        <ul className="list-disc list-inside pl-4">
+                          <li>You can save the transposed chart in several ways:
+                            <ul className="list-disc list-inside pl-4">
+                              <li><strong>As a Text File</strong>: Export your chart as a simple <code>.txt</code> file.</li>
+                              <li><strong>As a PDF</strong>: Quickly save the chart as a PDF document.</li>
+                              <li><strong>Advanced Export</strong>: For PDFs, you can customize the font type and size in the advanced export section.</li>
+                            </ul>
+                          </li>
+                        </ul>
+                      </li>
+                    </ol>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </CardHeader>
           <CardContent className="space-y-3">
             <Textarea
@@ -441,7 +566,7 @@ Chorus :
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-foreground">Transposed / Converted</CardTitle>
+            <CardTitle className="text-foreground h-7 flex items-center">Transposed / Converted</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <Textarea
