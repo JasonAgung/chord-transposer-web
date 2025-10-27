@@ -105,7 +105,6 @@ export default function AdvancedExport() {
                   Export PDF
                 </Button>
                 <Button
-                  variant="outline"
                   onClick={() => {
                     const blob = new Blob([content], { type: "text/plain" })
                     const link = document.createElement("a")
