@@ -115,7 +115,7 @@ export class SmartFormatter {
           alignedTokens.push(tok.padEnd(pad, " "))
         }
         const content = alignedTokens.join(" ").padEnd(barWidths[barIdx] ?? alignedTokens.join(" ").length, " ")
-        parts.push(content + " |")
+        parts.push(" " + content + " |")
       }
       return parts.join("")
     })

@@ -104,15 +104,7 @@ export default function ChordTransposer() {
     return shiftNoteBySemitones(key, semitones, preferFlats)
   }
 
-  const handleConvert = () => {
-    const base = original
-    if (!base) return
-    const detected = detectKeyFromContent(base || "")
-    const key = detected || targetKey
-    if (!key) return
-    const converted = numberer.convertChartToSystem(base, key, numbersStyle)
-    setTransposed(converted)
-  }
+
 
   const handleExportPDF = async () => {
     const content = transposed || original
@@ -347,12 +339,21 @@ Chorus :
 
             {/* Number System (radio) */}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="flex flex-col gap-3 md:col-span-2">
+              <div className="flex flex-col gap-3 md:col-span-3">
                 <Label>Notation</Label>
                 <RadioGroup
                   className="grid grid-cols-3 gap-3"
                   value={numbersStyle}
-                  onValueChange={(v: "default" | "roman" | "arabic") => setNumbersStyle(v)}
+                  onValueChange={(v: "default" | "roman" | "arabic") => {
+                    setNumbersStyle(v)
+                    const base = original
+                    if (!base) return
+                    const detected = detectKeyFromContent(base || "")
+                    const key = detected || targetKey
+                    if (!key) return
+                    const converted = numberer.convertChartToSystem(base, key, v)
+                    setTransposed(converted)
+                  }}
                 >
                   <div className="flex items-center gap-2 rounded-md border p-2">
                     <RadioGroupItem id="default" value="default" />
@@ -367,11 +368,6 @@ Chorus :
                     <Label htmlFor="arabic">Arabic (1, 2m, 3m)</Label>
                   </div>
                 </RadioGroup>
-              </div>
-              <div className="flex items-end">
-                <Button variant="outline" className="w-full bg-transparent" onClick={handleConvert}>
-                  Convert
-                </Button>
               </div>
             </div>
 
@@ -405,7 +401,6 @@ Chorus :
               <div className="flex items-end gap-2">
                 <Link href="/advanced-export" className="w-full">
                   <Button
-                    variant="outline"
                     className="w-full"
                     onClick={() => {
                       localStorage.setItem("chordChartContent", transposed || original)
