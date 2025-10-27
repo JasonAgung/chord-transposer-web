@@ -9,6 +9,7 @@ import PdfPreview from "@/components/pdf-preview"
 import Link from "next/link"
 import { Switch } from "@/components/ui/switch"
 import { useStore } from "@/lib/store"
+import { ModeToggle } from "@/components/theme-toggle"
 
 export default function AdvancedExport() {
   const {
@@ -24,13 +25,16 @@ export default function AdvancedExport() {
   const content = transposed || original
 
   return (
-    <section className="space-y-6 p-4 md:p-6">
-      <header className="flex items-center gap-4">
-        <Link href="/">
-          <Button variant="outline">Back</Button>
-        </Link>
-        <h1 className="text-2xl font-semibold">Advanced Export</h1>
-        <div></div>
+    <main className="container mx-auto px-4 py-8 md:px-6 lg:py-12">
+    <section className="space-y-6">
+      <header className="flex items-start justify-between">
+        <div className="flex items-center gap-4">
+          <Link href="/">
+            <Button variant="outline">Back</Button>
+          </Link>
+          <h1 className="text-2xl font-semibold">Advanced Export</h1>
+        </div>
+        <ModeToggle />
       </header>
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <div className="md:col-span-2">
@@ -118,5 +122,6 @@ export default function AdvancedExport() {
         </div>
       </div>
     </section>
+    </main>
   )
 }
