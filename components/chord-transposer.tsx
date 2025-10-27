@@ -243,11 +243,12 @@ Chorus :
 
   return (
     <section className="space-y-6">
-      <header className="flex items-center justify-between">
+      <header className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Chord Chart Transposer</h1>
           <p className="text-sm pt-2 text-muted-foreground">From an MD to fellow MDs (i love MD(s))</p>
         </div>
+        
         <ModeToggle />
       </header>
       <Card>
@@ -258,7 +259,7 @@ Chorus :
           {/* Title */}
           <div className="flex flex-col gap-2">
             <Label htmlFor="title">Title</Label>
-            <Input id="title" placeholder="Chord Chart" value={title} onChange={handleTitleChange} />
+            <Input id="title" placeholder="Chord Chart" value={title} readOnly className="bg-muted" />
           </div>
 
           {/* Detected Key */}
@@ -570,7 +571,7 @@ Chorus :
           <CardContent className="space-y-3">
             <Textarea
               value={transposed}
-              onChange={(e) => setTransposed(e.target.value)}
+              readOnly
               className={cn("min-h-[380px] font-mono")}
               aria-label="Transposed chord chart"
             />
@@ -595,7 +596,7 @@ Chorus :
 
       <Separator />
       <div className="text-xs text-muted-foreground">
-        Tip: Smart Format aligns bars like {"| C . . . | G . . . |"} and preserves time signature hints (3/4 vs 4/4).
+        Tip: Smart Format aligns bars like {"| C . . . | G . . . |"}.
       </div>
     </section>
   )
