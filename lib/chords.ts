@@ -1,6 +1,6 @@
 // Core chord utilities: parsing, transposition, and helpers.
 
-export const CHORD_PATTERN = /([A-G][#b]?)([mM]?(?:maj)?[0-9]*(?:sus|dim|aug|add)?[0-9]*)?(?:\/([A-G][#b]?))?/g
+export const CHORD_PATTERN = /([A-G][#b]?)((?:maj|dim|aug|sus|add|o|\+|[mM]|[#b]?[0-9]+)*)?(?:\/([A-G][#b]?))?/g
 
 export const NOTES_SHARP = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const
 export const NOTES_FLAT = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"] as const
@@ -70,7 +70,7 @@ export function semitoneDistance(fromKey: string, toKey: string): number {
 
 // Transpose a single chord token preserving quality and slash
 export function transposeChordToken(chord: string, fromKey: string, toKey: string): string {
-  const m = chord.match(/^([A-G][#b]?)([mM]?(?:maj)?[0-9]*(?:sus|dim|aug|add)?[0-9]*)?(?:\/([A-G][#b]?))?$/)
+  const m = chord.match(/^([A-G][#b]?)((?:maj|dim|aug|sus|add|o|\+|[mM]|[#b]?[0-9]+)*)?(?:\/([A-G][#b]?))?$/)
   if (!m) return chord
 
   const root = m[1]
@@ -86,7 +86,7 @@ export function transposeChordToken(chord: string, fromKey: string, toKey: strin
 }
 
 // Strict token regex for a single chord "word"
-const CHORD_TOKEN_STRICT = /^([A-G][#b]?)([mM]?(?:maj)?[0-9]*(?:sus|dim|aug|add)?[0-9]*)?(?:\/([A-G][#b]?))?$/
+const CHORD_TOKEN_STRICT = /^([A-G][#b]?)((?:maj|dim|aug|sus|add|o|\+|[mM]|[#b]?[0-9]+)*)?(?:\/([A-G][#b]?))?$/
 
 export function isChordLine(line: string): boolean {
   const hasBars = line.includes("|")
