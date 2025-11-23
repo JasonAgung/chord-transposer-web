@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { PDFDocument, rgb, StandardFonts, PDFFont } from "pdf-lib"
+import { PDFDocument, rgb, StandardFonts, PDFFont, PDFPage } from "pdf-lib"
 
 function breakTextIntoLines(text: string, font: PDFFont, fontSize: number, maxWidth: number): string[] {
     const words = text.split(' ');
@@ -53,6 +53,48 @@ export default function PdfPreview({ content, fontSize, fontFamily, orientation 
         // No footer
       }
 
+    const drawTextWithAnnotations = (
+      page: PDFPage,
+      text: string,
+      x: number,
+      y: number,
+      options: { font: PDFFont; size: number; color: any }
+    ) => {
+      const annotationRegex = /([\w#b/]+)\(([^)]+)\)/g
+      let lastIndex = 0
+      let currentX = x
+      let match
+
+      while ((match = annotationRegex.exec(text)) !== null) {
+        // Draw text before the match
+        const precedingText = text.substring(lastIndex, match.index)
+        if (precedingText) {
+          page.drawText(precedingText, { ...options, x: currentX, y })
+          currentX += options.font.widthOfTextAtSize(precedingText, options.size)
+        }
+
+        // Draw the word and its subscript annotation
+        const word = match[1]
+        const annotation = match[2]
+        const subscriptSize = options.size * 0.7
+        const subscriptY = y - options.size * 0.3
+
+        page.drawText(word, { ...options, x: currentX, y })
+        currentX += options.font.widthOfTextAtSize(word, options.size)
+
+        page.drawText(annotation, { ...options, x: currentX, y: subscriptY, size: subscriptSize })
+        currentX += options.font.widthOfTextAtSize(annotation, subscriptSize)
+
+        lastIndex = annotationRegex.lastIndex
+      }
+
+      // Draw remaining text after the last match
+      const remainingText = text.substring(lastIndex)
+      if (remainingText) {
+        page.drawText(remainingText, { ...options, x: currentX, y })
+      }
+    }
+
       const lines = content.split("\n")
       const lineHeight = fontSize * 1.4
       const columnGap = 20
@@ -90,9 +132,7 @@ export default function PdfPreview({ content, fontSize, fontFamily, orientation 
         const wrappedLines = breakTextIntoLines(line, currentFont, currentSize, colWidth);
 
         for (const wrappedLine of wrappedLines) {
-            page.drawText(wrappedLine, {
-                x: currentX,
-                y: currentY,
+            drawTextWithAnnotations(page, wrappedLine, currentX, currentY, {
                 font: currentFont,
                 size: currentSize,
                 color: isMetadata ? rgb(0.5, 0.5, 0.5) : rgb(0, 0, 0),
