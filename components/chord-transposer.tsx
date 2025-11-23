@@ -134,25 +134,22 @@ export default function ChordTransposer() {
 
     let currentX = margin
     let currentY = height - margin
-    const colWidth = orientation === "landscape" ? usableWidth / 2 - columnGap / 2 : usableWidth
+    const colWidth = usableWidth / 2 - columnGap / 2
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]
 
-              if (currentY < margin) {
-                if (orientation === "landscape" && currentX === margin) {
-                  currentX = margin + colWidth + columnGap
-                  currentY = height - margin
-                } else {
-                  drawFooter(page, width, pdfDoc.getPageCount(), pdfDoc.getPageCount())
-                  page = pdfDoc.addPage()
-                  if (orientation === "landscape") {
-                    page.setSize(width, height)
-                  }
-                  currentX = margin
-                  currentY = height - margin
-                }
-              }
+      if (currentY < margin) {
+        if (currentX === margin) { // First column is full
+          currentX = margin + colWidth + columnGap
+          currentY = height - margin
+        } else { // Second column is full
+          drawFooter(page, width, pdfDoc.getPageCount(), pdfDoc.getPageCount())
+          page = pdfDoc.addPage([width, height]) // Add new page with same dimensions
+          currentX = margin
+          currentY = height - margin
+        }
+      }
       const isTitle = i === 0
       const isMetadata = line.match(/^(Do\s*=|Time\s*Signature\s*=|Tempo\s*.*=|Structure\s*=)/)
       const isSectionHeader = line.match(/^([\w\s-]+:)/)
@@ -591,7 +588,7 @@ Chorus :
 
       <Separator />
       <div className="text-xs text-muted-foreground">
-        Tip: Smart Format aligns bars like {"| C . . . | G . . . |"}.
+        Tip: READ THE TIPS!.
       </div>
     </section>
   )

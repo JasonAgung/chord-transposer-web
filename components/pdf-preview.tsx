@@ -59,21 +59,18 @@ export default function PdfPreview({ content, fontSize, fontFamily, orientation 
 
       let currentX = margin
       let currentY = height - margin
-      const colWidth = orientation === "landscape" ? usableWidth / 2 - columnGap / 2 : usableWidth
+      const colWidth = usableWidth / 2 - columnGap / 2
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i]
 
         if (currentY < margin) {
-          if (orientation === "landscape" && currentX === margin) {
+          if (currentX === margin) { // First column is full
             currentX = margin + colWidth + columnGap
             currentY = height - margin
-          } else {
+          } else { // Second column is full
             drawFooter(page, width, pdfDoc.getPageCount(), pdfDoc.getPageCount())
-            page = pdfDoc.addPage()
-            if (orientation === "landscape") {
-              page.setSize(width, height)
-            }
+            page = pdfDoc.addPage([width, height]) // Add new page with same dimensions
             currentX = margin
             currentY = height - margin
           }
