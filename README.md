@@ -36,3 +36,36 @@ This application is built with modern web technologies:
 *   **State Management:** [Zustand](https://github.com/pmndrs/zustand) (for global application state, defined in `lib/store.ts`).
 *   **Core Transposition Logic:** Located in `lib/chords.ts`, handling key detection, note shifting, and chord transposition.
 *   **PDF Generation:** Utilizes the [pdf-lib](https://pdf-lib.js.org/) library, with logic in `components/chord-transposer.tsx` and `components/pdf-preview.tsx`.
+
+
+    The shouldUseFlats function, using FLAT_KEYS and SHARP_KEYS sets, determines the preference based on the target key. For
+  natural keys, it defaults to sharps, except for 'F' which prefers flats. This preference is
+  then used in shiftNoteBySemitones, which, after transposition, selects the final note from
+  either the sharp or flat note array based on the preferFlats boolean. I can now clearly
+  explain this to the user.Based on my analysis of lib/chords.ts, the program's choice between
+  sharps and flats is based on the target key of the transposition, following standard music
+  theory rules for key signatures.
+
+  Here is a step-by-step explanation:
+
+   1. `shouldUseFlats()` Function: The decision is primarily made by a function called
+      shouldUseFlats. This function looks at the key you are transposing to.
+
+   2. Key Signature Rules: The program has two predefined lists:
+       * Flat Keys: F, Bb, Eb, Ab, Db, Gb
+       * Sharp Keys: G, D, A, E, B, F#
+
+   3. How it Decides:
+       * If your target key is in the "Flat Keys" list (e.g., you are transposing to Bb), the
+         output will use flats (e.g., Eb, Ab).
+       * If your target key is in the "Sharp Keys" list (e.g., you are transposing to E), the
+         output will use sharps (e.g., F#, C#).
+       * For the key of C and other natural keys not in those lists, it defaults to using
+         sharps. The one exception is the key of F, for which it prefers using a Bb over an A#.
+
+   4. Applying the Choice: When a chord is transposed, the program calculates the new note. If
+      that new note has two possible names (like C# and Db), the decision from the
+      shouldUseFlats() function is used to pick the correct one for the target key's context.
+
+  In short, the program automatically follows established music theory to make the transposed
+  chord chart look clean and conventional for the key you've selected.

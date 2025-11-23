@@ -423,7 +423,7 @@ Chorus :
               <DialogTrigger asChild>
                 <Button variant="secondary">Tips</Button>
               </DialogTrigger>
-              <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+              <DialogContent className="max-h-[80vh] overflow-y-auto md:max-w-4xl">
                 <DialogHeader>
                   <DialogTitle>How to Write a Chord Chart</DialogTitle>
                 </DialogHeader>
