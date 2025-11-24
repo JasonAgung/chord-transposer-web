@@ -60,40 +60,44 @@ export default function PdfPreview({ content, fontSize, fontFamily, orientation 
       y: number,
       options: { font: PDFFont; size: number; color: any }
     ) => {
-      const annotationRegex = /([\w#b/]+)\(([^)]+)\)/g
-      let lastIndex = 0
-      let currentX = x
-      let match
+      const annotationRegex = /([\w#b/]+)\(([^)]+)\)/g;
+      let lastIndex = 0;
+      let currentX = x;
+      let match;
+
+      // Helper to draw a segment of plain text, handling spaces correctly
+      const drawPlainTextSegment = (segment: string) => {
+        const parts = segment.split(/(\s+)/); // Split by spaces, but keep them
+        for (const part of parts) {
+          if (part) {
+            page.drawText(part, { ...options, x: currentX, y });
+            currentX += options.font.widthOfTextAtSize(part, options.size);
+          }
+        }
+      };
 
       while ((match = annotationRegex.exec(text)) !== null) {
-        // Draw text before the match
-        const precedingText = text.substring(lastIndex, match.index)
-        if (precedingText) {
-          page.drawText(precedingText, { ...options, x: currentX, y })
-          currentX += options.font.widthOfTextAtSize(precedingText, options.size)
-        }
+        // Draw the text before the annotation
+        drawPlainTextSegment(text.substring(lastIndex, match.index));
 
-        // Draw the word and its subscript annotation
-        const word = match[1]
-        const annotation = match[2]
-        const subscriptSize = options.size * 0.7
-        const subscriptY = y - options.size * 0.3
+        // Draw the annotated word
+        const word = match[1];
+        const annotation = match[2];
+        const subscriptSize = options.size * 0.7;
+        const subscriptY = y - (options.size * 0.3);
 
-        page.drawText(word, { ...options, x: currentX, y })
-        currentX += options.font.widthOfTextAtSize(word, options.size)
-
-        page.drawText(annotation, { ...options, x: currentX, y: subscriptY, size: subscriptSize })
-        currentX += options.font.widthOfTextAtSize(annotation, subscriptSize)
-
-        lastIndex = annotationRegex.lastIndex
+        page.drawText(word, { ...options, x: currentX, y });
+        currentX += options.font.widthOfTextAtSize(word, options.size);
+        
+        page.drawText(annotation, { ...options, size: subscriptSize, x: currentX, y: subscriptY });
+        currentX += options.font.widthOfTextAtSize(annotation, subscriptSize);
+        
+        lastIndex = annotationRegex.lastIndex;
       }
 
-      // Draw remaining text after the last match
-      const remainingText = text.substring(lastIndex)
-      if (remainingText) {
-        page.drawText(remainingText, { ...options, x: currentX, y })
-      }
-    }
+      // Draw the remaining text after all annotations
+      drawPlainTextSegment(text.substring(lastIndex));
+    };
 
       const lines = content.split("\n")
       const lineHeight = fontSize * 1.4
