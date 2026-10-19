@@ -24,3 +24,6 @@ next-env.d.ts
 .vercel
 package-lock.json
 yarn.lock
+
+# TypeScript incremental build cache
+*.tsbuildinfo

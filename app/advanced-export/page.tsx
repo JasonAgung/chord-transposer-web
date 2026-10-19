@@ -7,9 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import PdfPreview from "@/components/pdf-preview"
 import Link from "next/link"
-import { Switch } from "@/components/ui/switch"
 import { useStore } from "@/lib/store"
 import { ModeToggle } from "@/components/theme-toggle"
+import { createChartPdf, downloadPdf, PdfFontFamily } from "@/lib/pdf"
+
+const MIN_FONT_SIZE = 6
+const MAX_FONT_SIZE = 24
 
 export default function AdvancedExport() {
   const {
@@ -20,9 +23,20 @@ export default function AdvancedExport() {
     title,
   } = useStore()
   const [fontSize, setFontSize] = useState(10)
-  const [fontFamily, setFontFamily] = useState("Helvetica")
+  const [fontFamily, setFontFamily] = useState<PdfFontFamily>("Helvetica")
+  const [exportError, setExportError] = useState<string | null>(null)
 
   const content = transposed || original
+
+  const handleExportPDF = async () => {
+    setExportError(null)
+    try {
+      downloadPdf(await createChartPdf(content, { orientation, fontSize, fontFamily }), title)
+    } catch (err) {
+      console.error(err)
+      setExportError("Could not create the PDF. Please check the chart for unusual characters and try again.")
+    }
+  }
 
   return (
     <main className="container mx-auto px-4 py-8 md:px-6 lg:py-12">
@@ -63,14 +77,14 @@ export default function AdvancedExport() {
               <div className="flex flex-col gap-2">
                 <Label>Font Size</Label>
                 <div className="flex items-center gap-2">
-                  <Button onClick={() => setFontSize(fontSize - 1)}>-</Button>
+                  <Button onClick={() => setFontSize(Math.max(MIN_FONT_SIZE, fontSize - 1))} disabled={fontSize <= MIN_FONT_SIZE}>-</Button>
                   <div className="w-12 text-center">{fontSize}</div>
-                  <Button onClick={() => setFontSize(fontSize + 1)}>+</Button>
+                  <Button onClick={() => setFontSize(Math.min(MAX_FONT_SIZE, fontSize + 1))} disabled={fontSize >= MAX_FONT_SIZE}>+</Button>
                 </div>
               </div>
               <div className="flex flex-col gap-2">
                 <Label>Font Family</Label>
-                <Select value={fontFamily} onValueChange={setFontFamily}>
+                <Select value={fontFamily} onValueChange={(value) => setFontFamily(value as PdfFontFamily)}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -79,6 +93,7 @@ export default function AdvancedExport() {
                     <SelectItem value="Courier">Courier</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">Use Courier to keep Smart Format&apos;s bars lined up.</p>
               </div>
               <div className="flex flex-col gap-2">
                 <Label>Orientation</Label>
@@ -94,16 +109,7 @@ export default function AdvancedExport() {
               </div>
 
               <div className="flex flex-col gap-2">
-                <Button
-                  onClick={() => {
-                    const link = document.createElement("a")
-                    link.href = (document.querySelector("iframe") as HTMLIFrameElement).src
-                    link.download = `${(title || "chord-chart").toLowerCase().replace(/\s+/g, "-")}.pdf`
-                    link.click()
-                  }}
-                >
-                  Export PDF
-                </Button>
+                <Button onClick={handleExportPDF}>Export PDF</Button>
                 <Button
                   onClick={() => {
                     const blob = new Blob([content], { type: "text/plain" })
@@ -115,6 +121,7 @@ export default function AdvancedExport() {
                 >
                   Export TXT
                 </Button>
+                {exportError && <p className="text-sm text-destructive">{exportError}</p>}
               </div>
             </CardContent>
           </Card>
