@@ -14,6 +14,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { createChartPdf, downloadPdf } from "@/lib/pdf"
+import { midiToChart } from "@/lib/midi-import"
 import Link from "next/link"
 import { ModeToggle } from "@/components/theme-toggle"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -114,6 +115,24 @@ export default function ChordTransposer() {
     } catch (err) {
       console.error(err)
       setPdfError("Could not create the PDF. Please check the chart for unusual characters and try again.")
+    }
+  }
+
+  const [importError, setImportError] = useState<string | null>(null)
+
+  // A MIDI file of block chords, e.g. Logic Pro region chords exported with File > Export > Selection as MIDI File
+  const handleImportMidi = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    setImportError(null)
+    try {
+      const chart = midiToChart(new Uint8Array(await file.arrayBuffer()), { title: file.name.replace(/\.midi?$/i, "") })
+      if (original.trim() && !window.confirm("Replace the current chart with the imported one?")) return
+      setOriginal(chart)
+    } catch (err) {
+      console.error(err)
+      setImportError(err instanceof Error ? err.message : "Could not read this MIDI file.")
     }
   }
 
@@ -479,10 +498,19 @@ Chorus :
             />
             <div className="flex items-center justify-between">
               <div className="text-sm text-muted-foreground">Paste your chart here. Include a line like "Do = C".</div>
-              <Button variant="secondary" onClick={() => setOriginal("")}>
-                Clear
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" asChild>
+                  <label className="cursor-pointer">
+                    Import MIDI
+                    <input type="file" accept=".mid,.midi,audio/midi" className="sr-only" onChange={handleImportMidi} />
+                  </label>
+                </Button>
+                <Button variant="secondary" onClick={() => setOriginal("")}>
+                  Clear
+                </Button>
+              </div>
             </div>
+            {importError && <p className="text-sm text-destructive">{importError}</p>}
           </CardContent>
         </Card>
 
