@@ -1,24 +1,17 @@
 // Smart formatter to align bars and standardize spacing similar to the Python version.
 
-import { CHORD_PATTERN } from "./chords"
+import { isChordLine, TOKEN_RE } from "./chords"
+
+// Words of a bar; a note in parentheses stays one word even with spaces: "F(up high)"
+const tokensOf = (bar: string): string[] => bar.match(TOKEN_RE) ?? []
 
 export class SmartFormatter {
-  private chordLineSymbolRatio(line: string) {
-    const symbols = [...line].filter((c) => c === "|" || c === "." || c === "-").length
-    return symbols / Math.max(line.length, 1)
-  }
-
   isChordLine(line: string): boolean {
-    const hasBars = line.includes("|")
-    const hasChords = new RegExp(CHORD_PATTERN).test(line)
-    const ratio = this.chordLineSymbolRatio(line)
-    return hasBars && hasChords && ratio > 0.1
+    return isChordLine(line)
   }
 
   private formatBarContent(content: string): string {
-    const tokens = content.trim().split(/\s+/).filter(Boolean)
-    // Keep dots and valid chords; otherwise pass-through
-    return tokens.join(" ")
+    return tokensOf(content).join(" ")
   }
 
   formatChordLine(line: string): string {
@@ -79,7 +72,7 @@ export class SmartFormatter {
       let maxTokens = 0
       parsed.forEach((bars) => {
         if (barIdx < bars.length) {
-          maxTokens = Math.max(maxTokens, bars[barIdx].split(/\s+/).filter(Boolean).length)
+          maxTokens = Math.max(maxTokens, tokensOf(bars[barIdx]).length)
         }
       })
 
@@ -88,7 +81,7 @@ export class SmartFormatter {
         let w = 0
         parsed.forEach((bars) => {
           if (barIdx < bars.length) {
-            const tokens = bars[barIdx].split(/\s+/).filter(Boolean)
+            const tokens = tokensOf(bars[barIdx])
             if (tokenIdx < tokens.length) w = Math.max(w, tokens[tokenIdx].length)
           }
         })
@@ -106,7 +99,7 @@ export class SmartFormatter {
       if (!bars || bars.length === 1) return lines[i] // pass-through
       const parts: string[] = ["|"]
       for (let barIdx = 0; barIdx < bars.length; barIdx++) {
-        const tokens = bars[barIdx].split(/\s+/).filter(Boolean)
+        const tokens = tokensOf(bars[barIdx])
         const widths = perTokenWidths[barIdx] || []
         const alignedTokens: string[] = []
         for (let t = 0; t < Math.max(tokens.length, widths.length); t++) {
