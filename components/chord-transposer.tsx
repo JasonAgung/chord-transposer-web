@@ -1,9 +1,9 @@
 "use client"
 
 import { useEffect, useState, MouseEvent, ChangeEvent } from "react"
-import { detectKeyFromContent, getAllKeys, transposeChart, shiftNoteBySemitones, shouldUseFlats } from "@/lib/chords"
+import { detectKeyFromContent, getAllKeys, shiftNoteBySemitones, shouldUseFlats } from "@/lib/chords"
 import { SmartFormatter } from "@/lib/formatter"
-import { NumberedChordConverter } from "@/lib/numbered"
+import { renderChart, NotationStyle } from "@/lib/render"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
-import { PDFDocument, rgb, StandardFonts, PDFPage, PDFFont } from "pdf-lib"
+import { createChartPdf, downloadPdf } from "@/lib/pdf"
 import Link from "next/link"
 import { ModeToggle } from "@/components/theme-toggle"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
@@ -24,26 +24,6 @@ import { useStore } from "@/lib/store"
 // Utilities
 const KEYS = getAllKeys()
 const formatter = new SmartFormatter()
-const numberer = new NumberedChordConverter()
-function breakTextIntoLines(text: string, font: PDFFont, fontSize: number, maxWidth: number): string[] {
-    const words = text.split(' ');
-    const lines: string[] = [];
-    let currentLine = '';
-
-    for (const word of words) {
-        const lineWithWord = currentLine === '' ? word : `${currentLine} ${word}`;
-        const width = font.widthOfTextAtSize(lineWithWord, fontSize);
-        if (width < maxWidth) {
-            currentLine = lineWithWord;
-        } else {
-            lines.push(currentLine);
-            currentLine = word;
-        }
-    }
-    lines.push(currentLine);
-    return lines;
-}
-
 export default function ChordTransposer() {
   const { original, transposed, currentKey, targetKey, title, orientation, numbersStyle, timeSignature, setOriginal, setTransposed, setCurrentKey, setTargetKey, setTitle, setOrientation, setNumbersStyle, setTimeSignature } = useStore()
 
@@ -90,9 +70,8 @@ export default function ChordTransposer() {
     const finalTargetKey = typeof newTargetKey === 'string' ? newTargetKey : targetKey
     if (!detectedKey || !finalTargetKey) return
     setCurrentKey(detectedKey)
-    const content = original
-    const result = transposeChart(content, detectedKey, finalTargetKey)
-    setTransposed(result)
+    const result = renderChart(original, finalTargetKey, numbersStyle)
+    if (result !== null) setTransposed(result)
   }
 
   const quickTransposeWhole = (steps: number) => {
@@ -124,128 +103,18 @@ export default function ChordTransposer() {
 
 
 
+  const [pdfError, setPdfError] = useState<string | null>(null)
+
   const handleExportPDF = async () => {
     const content = transposed || original
     if (!content) return
-
-    const pdfDoc = await PDFDocument.create()
-    let page = pdfDoc.addPage()
-
-    let { width, height } = page.getSize()
-    if (orientation === "landscape") {
-      page.setSize(height, width)
-      ;[width, height] = [height, width]
+    setPdfError(null)
+    try {
+      downloadPdf(await createChartPdf(content, { orientation }), title)
+    } catch (err) {
+      console.error(err)
+      setPdfError("Could not create the PDF. Please check the chart for unusual characters and try again.")
     }
-    const margin = 50
-    const usableWidth = width - margin * 2
-
-    const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
-    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold)
-
-    const drawFooter = (page: any, width: number, pageNum: number, totalPages: number) => {
-      // No footer
-    }
-
-    const drawTextWithAnnotations = (
-      page: PDFPage,
-      text: string,
-      x: number,
-      y: number,
-      options: { font: PDFFont; size: number; color: any }
-    ) => {
-      const annotationRegex = /([\w#b/]+)\(([^)]+)\)/g;
-      let lastIndex = 0;
-      let currentX = x;
-      let match;
-
-      // Helper to draw a segment of plain text, handling spaces correctly
-      const drawPlainTextSegment = (segment: string) => {
-        const parts = segment.split(/(\s+)/); // Split by spaces, but keep them
-        for (const part of parts) {
-          if (part) {
-            page.drawText(part, { ...options, x: currentX, y });
-            currentX += options.font.widthOfTextAtSize(part, options.size);
-          }
-        }
-      };
-
-      while ((match = annotationRegex.exec(text)) !== null) {
-        // Draw the text before the annotation
-        drawPlainTextSegment(text.substring(lastIndex, match.index));
-
-        // Draw the annotated word
-        const word = match[1];
-        const annotation = match[2];
-        const subscriptSize = options.size * 0.7;
-        const subscriptY = y - (options.size * 0.3);
-
-        page.drawText(word, { ...options, x: currentX, y });
-        currentX += options.font.widthOfTextAtSize(word, options.size);
-        
-        page.drawText(annotation, { ...options, size: subscriptSize, x: currentX, y: subscriptY });
-        currentX += options.font.widthOfTextAtSize(annotation, subscriptSize);
-        
-        lastIndex = annotationRegex.lastIndex;
-      }
-
-      // Draw the remaining text after all annotations
-      drawPlainTextSegment(text.substring(lastIndex));
-    };
-
-
-    const lines = content.split("\n")
-    const lineHeight = 14
-    const columnGap = 20
-
-    let currentX = margin
-    let currentY = height - margin
-    const colWidth = usableWidth / 2 - columnGap / 2
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-
-      const isTitle = i === 0
-      const isMetadata = line.match(/^(Do\s*=|Time\s*Signature\s*=|Tempo\s*.*=|Structure\s*=)/)
-      const isSectionHeader = line.match(/^([\w\s-]+:)/)
-      
-      const currentFont = isTitle || isSectionHeader ? boldFont : font
-      const currentSize = isTitle ? 15 : 10
-
-      const wrappedLines = breakTextIntoLines(line, currentFont, currentSize, colWidth)
-
-      for (const wrappedLine of wrappedLines) {
-        if (currentY < margin) {
-          if (currentX === margin) { // First column is full
-            currentX = margin + colWidth + columnGap
-            currentY = height - margin
-          } else { // Second column is full
-            drawFooter(page, width, pdfDoc.getPageCount(), pdfDoc.getPageCount())
-            page = pdfDoc.addPage([width, height]) // Add new page with same dimensions
-            currentX = margin
-            currentY = height - margin
-          }
-        }
-
-        if (isSectionHeader) {
-          currentY -= lineHeight / 2
-        }
-
-        drawTextWithAnnotations(page, wrappedLine, currentX, currentY, {
-          font: currentFont,
-          size: currentSize,
-          color: isMetadata ? rgb(0.5, 0.5, 0.5) : rgb(0, 0, 0),
-        })
-        currentY -= isTitle ? 24 : lineHeight
-      }
-    }
-    drawFooter(page, width, pdfDoc.getPageCount(), pdfDoc.getPageCount())
-
-    const pdfBytes = await pdfDoc.save()
-    const blob = new Blob([pdfBytes.slice().buffer], { type: "application/pdf" })
-    const link = document.createElement("a")
-    link.href = URL.createObjectURL(blob)
-    link.download = `${(title || "chord-chart").toLowerCase().replace(/\s+/g, "-")}.pdf`
-    link.click()
   }
 
   const extractTitleFromContent = (content: string): string | null => {
@@ -411,15 +280,12 @@ Chorus :
                 <RadioGroup
                   className="grid grid-cols-3 gap-3"
                   value={numbersStyle}
-                  onValueChange={(v: "default" | "roman" | "arabic") => {
+                  onValueChange={(v: NotationStyle) => {
                     setNumbersStyle(v)
-                    const base = original
-                    if (!base) return
-                    const detected = detectKeyFromContent(base || "")
-                    const key = detected || targetKey
+                    const key = targetKey || detectKeyFromContent(original)
                     if (!key) return
-                    const converted = numberer.convertChartToSystem(base, key, v)
-                    setTransposed(converted)
+                    const converted = renderChart(original, key, v)
+                    if (converted !== null) setTransposed(converted)
                   }}
                 >
                   <div className="flex items-center gap-2 rounded-md border p-2">
@@ -464,20 +330,14 @@ Chorus :
                   Export PDF
                 </Button>
               </div>
-              
+
               <div className="flex items-end gap-2">
                 <Link href="/advanced-export" className="w-full">
-                  <Button
-                    className="w-full"
-                    onClick={() => {
-                      localStorage.setItem("chordChartContent", transposed || original)
-                    }}
-                  >
-                    Advanced Export
-                  </Button>
+                  <Button className="w-full">Advanced Export</Button>
                 </Link>
               </div>
             </div>
+            {pdfError && <p className="text-sm text-destructive">{pdfError}</p>}
           </div>
         </CardContent>
       </Card>
