@@ -31,5 +31,6 @@ export default function PdfPreview({ content, fontSize, fontFamily, orientation 
   }, [pdfUrl])
 
   if (error) return <p className="text-sm text-destructive">{error}</p>
-  return <>{pdfUrl && <iframe src={pdfUrl} className="h-full w-full" title="PDF preview" />}</>
+  // Fit the page to the width of the box, so a landscape page is not cut off on the right
+  return <>{pdfUrl && <iframe src={`${pdfUrl}#view=FitH`} className="h-full w-full" title="PDF preview" />}</>
 }

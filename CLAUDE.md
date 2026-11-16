@@ -25,11 +25,13 @@ The app's input conventions, which the parser relies on:
   - `transposeNote` spells by scale role (flat 6 of C = Ab → flat 6 of D = Bb), and falls back to plain sharp/flat for E#/B#/Fb/Cb.
 - `lib/render.ts` — output panel pipeline: transpose to the target key, *then* convert notation. Same key = no transposition (keeps original spelling).
 - `lib/numbered.ts` — Roman/Arabic conversion. Upper-case Roman = major, lower-case = minor/diminished.
-- `lib/formatter.ts` — Smart Format (bar alignment).
+- `lib/formatter.ts` — Smart Format: lines up bars and each beat within them across a run of chord lines. Keeps text before the first bar (`Intro :`) and after the last (`x2`).
 - `lib/pdf.ts` — the single PDF renderer (pdf-lib), used by both the main Export PDF button and `components/pdf-preview.tsx`.
   - Built-in Helvetica/Courier by default. If the chart has characters they can't draw (♭, ♯, non-Latin), it loads DejaVu fonts from `public/fonts/` via `@pdf-lib/fontkit`. Characters no font has become `?`.
-  - Two columns per page. A section that would split moves to the next column. Long chord lines wrap evenly between bars.
-  - The font picker applies to every line. Only Courier keeps Smart Format's bars aligned.
+  - Two columns per page. A section that would split moves to the next column, but only when the current column is more than half full.
+  - Measure text with `textWidth`, never `font.widthOfTextAtSize`: pdf-lib measures with kerning but draws without it, so its widths run short and the next piece of text lands on the previous one.
+  - The font picker applies to every line. Only Courier keeps Smart Format's bars aligned: there a note like `(up)` keeps its full width; in Helvetica the text after the note follows it directly.
+  - Chord lines too wide for the column are shrunk (to 75% at most), then split evenly (4 bars → 2+2). In Courier the split lines are re-aligned so their bar lines stay under each other.
 - `lib/midi-import.ts` — "Import MIDI" button: turns a MIDI file of block chords into a chart (names chords from the notes, guesses `Do =` from the chords, writes eighth-note pushes on the next beat as `A7(up)`, the chart convention for a chord played on the "and" before that beat). For Logic Pro, the chords must first be turned into a MIDI region of block chords on a software-instrument track, then exported with File → Export → Selection as MIDI File; copying chords as text, or exporting the audio track's MIDI, gives positions without names.
 - `lib/store.ts` — Zustand store (not persisted).
 - `components/chord-transposer.tsx` — main page UI. `app/advanced-export/page.tsx` — PDF settings + preview.
