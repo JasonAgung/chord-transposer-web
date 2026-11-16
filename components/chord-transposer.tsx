@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, MouseEvent, ChangeEvent } from "react"
-import { detectKeyFromContent, getAllKeys, shiftNoteBySemitones, shouldUseFlats } from "@/lib/chords"
+import { detectKeyFromContent, getAllKeys, noteIndex } from "@/lib/chords"
 import { SmartFormatter } from "@/lib/formatter"
 import { renderChart, NotationStyle } from "@/lib/render"
 import { Button } from "@/components/ui/button"
@@ -24,7 +24,44 @@ import { useStore } from "@/lib/store"
 
 // Utilities
 const KEYS = getAllKeys()
+// The usual name of each key, for quick transpose: Db rather than C#, F# rather than Gb
+const KEY_NAMES = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
 const formatter = new SmartFormatter()
+const TEMPLATE_34 = `[Song Number]. [Song Title] ([Source/Book Reference])
+Do = C
+Time Signature = 3/4
+Tempo (1/4) = 85 BPM
+Structure = Verse, Chorus
+
+Intro :
+| C . . | F . . | G . . | C . . |
+
+Verse :
+| C . . | Am . . | F . . | G . . |
+| C . . | Am . . | F . . | G . . |
+
+Chorus :
+| F . . | G . . | C . . | C . . |
+| F . . | G . . | C . . | C . . |`
+
+const TEMPLATE_44 = `[Song Number]. [Song Title] ([Source/Book Reference])
+Do = C
+Time Signature = 4/4
+Tempo (1/4) = 100 BPM
+Structure = Intro, Verse, Chorus
+
+Intro :
+| C . . . | F . . . | G . . . | C . . . |
+| C . . . | F . . . | G . . . | C . . . |
+
+Verse :
+| C . . . | Am . . . | F . . . | G . . . |
+| C . . . | Am . . . | F . . . | G . . . |
+
+Chorus :
+| F . . . | G . . . | C . . . | C . . . |
+| F . . . | G . . . | C . . . | C . . . |`
+
 export default function ChordTransposer() {
   const { original, transposed, currentKey, targetKey, title, orientation, numbersStyle, timeSignature, setOriginal, setTransposed, setCurrentKey, setTargetKey, setTitle, setOrientation, setNumbersStyle, setTimeSignature } = useStore()
 
@@ -58,6 +95,13 @@ export default function ChordTransposer() {
   };
 
 
+
+  // A new or edited chart makes the result panel out of date, so it is cleared; otherwise Export PDF
+  // would print the previous result
+  const replaceOriginal = (chart: string) => {
+    setOriginal(chart)
+    setTransposed("")
+  }
 
   const handleSmartFormat = () => {
     const formattedOriginal = formatter.formatChart(original)
@@ -98,8 +142,7 @@ export default function ChordTransposer() {
   }
 
   function shiftKey(key: string, semitones: number) {
-    const preferFlats = shouldUseFlats(key)
-    return shiftNoteBySemitones(key, semitones, preferFlats)
+    return KEY_NAMES[(((noteIndex(key) + semitones) % 12) + 12) % 12]
   }
 
 
@@ -129,7 +172,7 @@ export default function ChordTransposer() {
     try {
       const chart = midiToChart(new Uint8Array(await file.arrayBuffer()), { title: file.name.replace(/\.midi?$/i, "") })
       if (original.trim() && !window.confirm("Replace the current chart with the imported one?")) return
-      setOriginal(chart)
+      replaceOriginal(chart)
     } catch (err) {
       console.error(err)
       setImportError(err instanceof Error ? err.message : "Could not read this MIDI file.")
@@ -141,51 +184,12 @@ export default function ChordTransposer() {
     return titleMatch ? titleMatch[1].trim() : null
   }
 
-  const loadTemplate34 = () => {
-    setOriginal(
-      `[Song Number]. [Song Title] ([Source/Book Reference])
-Do = C
-Time Signature = 3/4
-Tempo (1/4) = 85 BPM
-Structure = Verse, Chorus
-
-Intro :
-| C . . | F . . | G . . | C . . |
-
-Verse :
-| C . . | Am . . | F . . | G . . |
-| C . . | Am . . | F . . | G . . |
-
-Chorus :
-| F . . | G . . | C . . | C . . |
-| F . . | G . . | C . . | C . . |`,
-    )
-    setTransposed("")
-    setTimeSignature("3/4")
-  }
-
-  const loadTemplate44 = () => {
-    setOriginal(
-      `[Song Number]. [Song Title] ([Source/Book Reference])
-Do = C
-Time Signature = 4/4
-Tempo (1/4) = 100 BPM
-Structure = Intro, Verse, Chorus
-
-Intro :
-| C . . . | F . . . | G . . . | C . . . |
-| C . . . | F . . . | G . . . | C . . . |
-
-Verse :
-| C . . . | Am . . . | F . . . | G . . . |
-| C . . . | Am . . . | F . . . | G . . . |
-
-Chorus :
-| F . . . | G . . . | C . . . | C . . . |
-| F . . . | G . . . | C . . . | C . . . |`,
-    )
-    setTransposed("")
-    setTimeSignature("4/4")
+  // Loading a template replaces the chart, so ask first unless the chart is empty or still a template
+  const loadTemplate = (template: string, signature: "3/4" | "4/4") => {
+    const untouched = [TEMPLATE_34, TEMPLATE_44, useStore.getInitialState().original].includes(original)
+    if (original.trim() && !untouched && !window.confirm("Replace the current chart with the template?")) return
+    replaceOriginal(template)
+    setTimeSignature(signature)
   }
 
   return (
@@ -240,7 +244,7 @@ Chorus :
                   type="button"
                   variant={timeSignature === "4/4" ? "default" : "secondary"}
                   className="rounded-none"
-                  onClick={() => loadTemplate44()}
+                  onClick={() => loadTemplate(TEMPLATE_44, "4/4")}
                 >
                   4/4
                 </Button>
@@ -248,7 +252,7 @@ Chorus :
                   type="button"
                   variant={timeSignature === "3/4" ? "default" : "secondary"}
                   className="rounded-none border-l"
-                  onClick={() => loadTemplate34()}
+                  onClick={() => loadTemplate(TEMPLATE_34, "3/4")}
                 >
                   3/4
                 </Button>
@@ -492,7 +496,7 @@ Chorus :
           <CardContent className="space-y-3">
             <Textarea
               value={original}
-              onChange={(e) => setOriginal(e.target.value)}
+              onChange={(e) => replaceOriginal(e.target.value)}
               className={cn("min-h-[380px] font-mono")}
               aria-label="Original chord chart"
             />
@@ -505,7 +509,7 @@ Chorus :
                     <input type="file" accept=".mid,.midi,audio/midi" className="sr-only" onChange={handleImportMidi} />
                   </label>
                 </Button>
-                <Button variant="secondary" onClick={() => setOriginal("")}>
+                <Button variant="secondary" onClick={() => replaceOriginal("")}>
                   Clear
                 </Button>
               </div>
