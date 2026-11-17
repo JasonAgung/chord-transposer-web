@@ -157,3 +157,50 @@
 .dark .paper {
   box-shadow: none;
 }
+
+/* Motion. A strong ease-out: movement starts at once and settles, so the interface answers immediately. */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Buttons and segments give way a little when pressed, so a press always feels heard. Only the
+   properties that change are animated (the generated button animates "all"). */
+[data-slot="button"],
+[data-slot="toggle-group-item"] {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 160ms;
+  transition-timing-function: var(--ease-out);
+}
+[data-slot="button"]:not(:disabled):active,
+[data-slot="toggle-group-item"]:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* Menus, lists, tooltips and dialogs open with the same ease-out */
+[data-slot="dropdown-menu-content"],
+[data-slot="dropdown-menu-sub-content"],
+[data-slot="select-content"],
+[data-slot="tooltip-content"],
+[data-slot="dialog-content"] {
+  --tw-ease: var(--ease-out);
+}
+
+/* Reduced motion: keep the fades, drop the movement */
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="button"]:active,
+  [data-slot="toggle-group-item"]:active {
+    transform: none;
+  }
+  [data-slot="dropdown-menu-content"],
+  [data-slot="dropdown-menu-sub-content"],
+  [data-slot="select-content"],
+  [data-slot="tooltip-content"],
+  [data-slot="dialog-content"] {
+    --tw-enter-scale: 1;
+    --tw-exit-scale: 1;
+    --tw-enter-translate-x: 0;
+    --tw-enter-translate-y: 0;
+    --tw-exit-translate-x: 0;
+    --tw-exit-translate-y: 0;
+  }
+}

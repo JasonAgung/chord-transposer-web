@@ -145,16 +145,31 @@ export default function ChordTransposer() {
   }
 
   const [error, setError] = useState<string | null>(null)
+  // The first export loads the PDF fonts and can take a moment; the button says so and can't be pressed twice
+  const [exporting, setExporting] = useState(false)
+  // A moved chart says its key in the file name, so a folder of PDFs doesn't hold two copies with the same name
+  const fileTitle = chartKey && playKey !== chartKey ? `${title} in ${playKey}` : title
 
   const handleExportPDF = async () => {
-    if (!sheet.trim()) return
+    if (!sheet.trim() || exporting) return
     setError(null)
+    setExporting(true)
     try {
-      downloadPdf(await createPdf(sheet, { style: "grid", orientation }), title)
+      downloadPdf(await createPdf(sheet, { style: "grid", orientation }), fileTitle)
     } catch (err) {
       console.error(err)
       setError("Couldn't create the PDF. Check the chart for unusual characters and try again.")
+    } finally {
+      setExporting(false)
     }
+  }
+
+  // "Copy text" says "Copied" for a moment, so you know it worked
+  const [copied, setCopied] = useState(false)
+  const copyText = async () => {
+    await navigator.clipboard.writeText(sheet)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
   }
 
   // Replacing the chart asks first, unless the chart is empty or still an untouched template
@@ -230,7 +245,7 @@ export default function ChordTransposer() {
 
       {/* What you play and how you hand it out: key, notation, export. It stays in view while you scroll on
           wide screens; on a phone it wraps to three lines, too tall to keep on screen. */}
-      <div className="-mx-4 border-y bg-card px-4 py-3 md:sticky md:top-2 md:z-20 md:mx-0 md:rounded-xl md:border md:bg-card/95 md:backdrop-blur">
+      <div className="-mx-4 border-y bg-card px-4 py-3 md:sticky md:top-2 md:z-20 md:mx-0 md:rounded-xl md:border">
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
           <div className="flex items-center gap-2" role="group" aria-label="Key">
             <span className="text-sm text-muted-foreground">Key</span>
@@ -255,7 +270,7 @@ export default function ChordTransposer() {
                   </SelectContent>
                 </Select>
                 <div className="flex">
-                  <Tooltip>
+                  <Tooltip delayDuration={500}>
                     <TooltipTrigger asChild>
                       <Button variant="outline" size="icon" className="size-9 rounded-r-none" onClick={() => stepKey(-1)} aria-label="Down a semitone">
                         <Minus />
@@ -263,7 +278,7 @@ export default function ChordTransposer() {
                     </TooltipTrigger>
                     <TooltipContent>Down a semitone</TooltipContent>
                   </Tooltip>
-                  <Tooltip>
+                  <Tooltip delayDuration={500}>
                     <TooltipTrigger asChild>
                       <Button variant="outline" size="icon" className="-ml-px size-9 rounded-l-none" onClick={() => stepKey(1)} aria-label="Up a semitone">
                         <Plus />
@@ -293,8 +308,8 @@ export default function ChordTransposer() {
           </ToggleGroup>
 
           <div className="flex items-center gap-2 md:ml-auto">
-            <Button onClick={handleExportPDF} disabled={!sheet.trim()}>
-              Export PDF
+            <Button onClick={handleExportPDF} disabled={!sheet.trim() || exporting} className="min-w-[7.5rem]">
+              {exporting ? "Exporting…" : "Export PDF"}
             </Button>
             <Button variant="ghost" asChild>
               <Link href="/advanced-export">PDF options</Link>
@@ -395,8 +410,8 @@ export default function ChordTransposer() {
                 <ChartEditor value={sheet} readOnly ariaLabel="Transposed chord chart" />
               </div>
               <div className="flex justify-end border-t px-4 py-2">
-                <Button variant="ghost" size="sm" onClick={() => navigator.clipboard.writeText(sheet)} disabled={!sheet.trim()}>
-                  Copy text
+                <Button variant="ghost" size="sm" onClick={copyText} disabled={!sheet.trim()} className="min-w-[5.5rem]" aria-live="polite">
+                  {copied ? "Copied" : "Copy text"}
                 </Button>
               </div>
             </TabsContent>

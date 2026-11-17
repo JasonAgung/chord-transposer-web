@@ -10,6 +10,7 @@ import Link from "next/link"
 import { useStore } from "@/lib/store"
 import { ModeToggle } from "@/components/theme-toggle"
 import { createPdf, downloadPdf, pdfFileName, PdfFontFamily, PdfStyle } from "@/lib/pdf"
+import { detectKeyFromContent } from "@/lib/chords"
 
 const MIN_FONT_SIZE = 6
 const MAX_FONT_SIZE = 24
@@ -35,13 +36,23 @@ export default function AdvancedExport() {
     useStore.persist.rehydrate()
   }, [])
 
+  // A moved chart says its key in the file name, as on the main page
+  const writtenKey = detectKeyFromContent(original)
+  const sheetKey = detectKeyFromContent(content)
+  const fileTitle = writtenKey && sheetKey && sheetKey !== writtenKey ? `${title} in ${sheetKey}` : title
+  const [exporting, setExporting] = useState(false)
+
   const handleExportPDF = async () => {
+    if (exporting) return
     setExportError(null)
+    setExporting(true)
     try {
-      downloadPdf(await createPdf(content, { style, orientation, fontSize, fontFamily }), title)
+      downloadPdf(await createPdf(content, { style, orientation, fontSize, fontFamily }), fileTitle)
     } catch (err) {
       console.error(err)
       setExportError("Couldn't create the PDF. Check the chart for unusual characters and try again.")
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -51,7 +62,7 @@ export default function AdvancedExport() {
     const url = URL.createObjectURL(new Blob([content], { type: "text/plain;charset=utf-8" }))
     const link = document.createElement("a")
     link.href = url
-    link.download = pdfFileName(title).replace(/\.pdf$/, ".txt")
+    link.download = pdfFileName(fileTitle).replace(/\.pdf$/, ".txt")
     link.click()
     setTimeout(() => URL.revokeObjectURL(url), 10_000)
   }
@@ -148,8 +159,8 @@ export default function AdvancedExport() {
             )}
 
             <div className="space-y-2 border-t pt-4">
-              <Button className="w-full" onClick={handleExportPDF} disabled={!content.trim()}>
-                Export PDF
+              <Button className="w-full" onClick={handleExportPDF} disabled={!content.trim() || exporting}>
+                {exporting ? "Exporting…" : "Export PDF"}
               </Button>
               <Button variant="ghost" className="w-full" onClick={handleSaveTxt} disabled={!content.trim()}>
                 Save as .txt
