@@ -45,6 +45,41 @@ function Chord({ token }: { token: string }) {
   return <span className="whitespace-nowrap font-bold">{segs.map(part)}</span>
 }
 
+// The chords of a bar that isn't crowded. Each chord spans from its beat to the next chord, with dots for
+// the empty beats after it; dots that don't fit beside a long chord are left out, so they never cover it.
+function BarSpans({ cells, beats, dots }: { cells: (string | null)[]; beats: number; dots: boolean }) {
+  const chordBeats = cells.flatMap((c, i) => (c ? [i] : []))
+  const Dots = ({ count }: { count: number }) =>
+    dots && count > 0 ? (
+      <span className="flex h-[1.2em] min-w-0 flex-1 flex-wrap items-center justify-around overflow-hidden pl-1 text-[var(--ink-muted)]">
+        {Array.from({ length: count }, (_, i) => (
+          <span key={i} className="px-0.5 leading-[1.2em]">
+            •
+          </span>
+        ))}
+      </span>
+    ) : null
+  return (
+    <>
+      {/* Empty beats before the first chord */}
+      {chordBeats[0] > 0 && (
+        <span className="flex min-w-0 items-center" style={{ gridColumn: `1 / ${chordBeats[0] + 1}` }}>
+          <Dots count={chordBeats[0]} />
+        </span>
+      )}
+      {chordBeats.map((beat, k) => {
+        const next = chordBeats[k + 1] ?? beats
+        return (
+          <span key={beat} className="flex min-w-0 items-center pr-1.5 leading-none" style={{ gridColumn: `${beat + 1} / ${next + 1}` }}>
+            <Chord token={cells[beat]!} />
+            <Dots count={next - beat - 1} />
+          </span>
+        )
+      })}
+    </>
+  )
+}
+
 // One row of bars, as cells of the song's grid (see Body)
 function Row({ bars, beats, final, tail }: { bars: { pos: number; token: string }[][]; beats: number; final: boolean; tail: string }) {
   return (
@@ -67,19 +102,17 @@ function Row({ bars, beats, final, tail }: { bars: { pos: number; token: string 
             )}
             style={{ gridTemplateColumns: crowded ? `repeat(${cells.filter(Boolean).length}, auto)` : `repeat(${beats}, minmax(0, 1fr))` }}
           >
-            {cells.map((token, i) =>
-              // A crowded bar leaves out the dots on empty beats to make room for its chords
-              crowded && !token ? null : (
-                <span key={i} className={cn("whitespace-nowrap leading-none", crowded ? "pr-1" : "pr-1.5")}>
-                  {token ? (
-                    <Chord token={token} />
-                  ) : slots.length === 0 ? (
-                    <span className="text-[var(--ink-muted)]">/</span>
-                  ) : slots.length > 1 ? (
-                    <span className="block text-center text-[var(--ink-muted)]">•</span>
-                  ) : null}
-                </span>
-              ),
+            {crowded || slots.length === 0 ? (
+              cells.map((token, i) =>
+                // A crowded bar leaves out the dots on empty beats to make room for its chords
+                crowded && !token ? null : (
+                  <span key={i} className={cn("whitespace-nowrap leading-none", crowded ? "pr-1" : "pr-1.5")}>
+                    {token ? <Chord token={token} /> : <span className="text-[var(--ink-muted)]">/</span>}
+                  </span>
+                ),
+              )
+            ) : (
+              <BarSpans cells={cells} beats={beats} dots={slots.length > 1} />
             )}
           </div>
         )
@@ -137,7 +170,7 @@ function Body({ items, beats }: { items: Item[]; beats: number }) {
 export default function ChartPreview({ content }: { content: string }) {
   const song = useMemo(() => parseSong(content), [content])
   const beats = Math.max(1, parseInt(song.time ?? "", 10) || 4)
-  const info = [song.time, song.tempo && `♩ = ${song.tempo}`].filter(Boolean).join("   ")
+  const info = [song.time, song.tempo].filter(Boolean).join("   ")
 
   // When the bars are wider than the box (a narrow screen, crowded bars), scale them down to fit,
   // like a thumbnail of the page, instead of scrolling sideways

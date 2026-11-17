@@ -40,6 +40,12 @@ lyrics | with a bar sign`;
     expect(messages('Song\nDo = C\nTime Signature = 3/4\n| C . . . |')).toEqual(['This bar has 4 beats; 3/4 has 3.']);
   });
 
+  it('counts beats in other time signatures', () => {
+    expect(lintChart('Song\nDo = C\nTime Signature = 6/8\n| C . . G . . | F . . . . . |')).toEqual([]);
+    expect(lintChart('Song\nDo = C\nTime Signature = 12/8\n| C . . . . . G . . . . . |')).toEqual([]);
+    expect(messages('Song\nDo = C\nTime Signature = 6/8\n| C . . . |')).toEqual(['This bar has 4 beats; 6/8 has 6.']);
+  });
+
   it('warns when the key line is missing', () => {
     expect(messages('Song\n| C . . . |')).toEqual(['No "Do = …" line, so the chart can\'t be transposed. Add one like "Do = C".']);
     expect(lintChart('')).toEqual([]);
