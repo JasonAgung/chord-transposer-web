@@ -34,6 +34,15 @@ async function pagesText(bytes: Uint8Array) {
 
 const render = (chart: string, options = {}) => createGridPdf(chart, { loadFont, ...options });
 
+// The beat dots drawn on the first page: each is a filled circle in the dot grey
+async function dotCount(bytes: Uint8Array) {
+  const doc = await PDFDocument.load(bytes);
+  const contents = doc.getPages()[0].node.Contents();
+  const refs = contents instanceof PDFArray ? contents.asArray() : [contents];
+  const ops = refs.map((ref) => inflateSync(Buffer.from((doc.context.lookup(ref as PDFRef) as PDFRawStream).contents)).toString('latin1')).join('\n');
+  return (ops.match(/0\.42 0\.42 0\.46 rg/g) ?? []).length;
+}
+
 describe('parseSong', () => {
   const song = parseSong(`My Song
 Do = Bb
@@ -160,7 +169,11 @@ describe('createGridPdf', () => {
   it('keeps crowded chords at full size and moves them apart instead', async () => {
     const [page] = await pagesText(await render('S\n| Bm7(up) . A/C#(up) B/D#(up) | D . . . |'));
     const roots = page.filter((t) => ['B', 'A'].includes(t.text));
-    expect(roots.map((t) => t.size)).toEqual([13, 13, 13]);
+    // All the same size (none shrunk on its own), and close to full size: only enough smaller to keep
+    // room for the dot after Bm7
+    const sizes = roots.map((t) => t.size);
+    expect(new Set(sizes).size).toBe(1);
+    expect(sizes[0]).toBeGreaterThan(12);
     // Each chord starts after the one before it ends
     const xs = roots.map((t) => t.x);
     expect(xs[1]).toBeGreaterThan(xs[0] + 20);
@@ -194,6 +207,17 @@ describe('createGridPdf', () => {
 
   it('draws characters Helvetica lacks with the fallback font, and never fails on unknown ones', async () => {
     await expect(render('Kidung 愛 B♭ 🎸\nDo = B♭\n\n| B♭ . . . | E♭/G . . . |\n歌詞 lyrics 🎸')).resolves.toBeInstanceOf(Uint8Array);
+  });
+
+  it('gives every empty beat its dot, even beside a wide chord in a narrow 6/8 bar', async () => {
+    // Db: 2 dots, Bbm: 2 dots (Bbm is wider than Am, which used to push one out)
+    expect(await dotCount(await render('S\nTime Signature = 6/8\n| Db . . Bbm . . | C . . . . . |'))).toBe(4);
+    // Chords on beats 1 and 2 of 3: one dot for beat 3
+    expect(await dotCount(await render('S\nTime Signature = 3/4\n| C D . | F . . |'))).toBe(1);
+    // One chord off the downbeat: dots before and after it
+    expect(await dotCount(await render('S\nTime Signature = 6/8\n| . . C . . . |'))).toBe(5);
+    // A bar crowded with long chords still keeps its dots
+    expect(await dotCount(await render('S\nTime Signature = 6/8\n| C#m7b5(up) Bbmaj7(up) Ebmaj7(up) Abmaj7(up) . . |'))).toBe(2);
   });
 
   it('draws charts in other time signatures', async () => {

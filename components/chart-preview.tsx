@@ -45,38 +45,57 @@ function Chord({ token }: { token: string }) {
   return <span className="whitespace-nowrap font-bold">{segs.map(part)}</span>
 }
 
-// The chords of a bar that isn't crowded. Each chord spans from its beat to the next chord, with dots for
-// the empty beats after it; dots that don't fit beside a long chord are left out, so they never cover it.
-function BarSpans({ cells, beats, dots }: { cells: (string | null)[]; beats: number; dots: boolean }) {
-  const chordBeats = cells.flatMap((c, i) => (c ? [i] : []))
-  const Dots = ({ count }: { count: number }) =>
-    dots && count > 0 ? (
-      <span className="flex h-[1.2em] min-w-0 flex-1 flex-wrap items-center justify-around overflow-hidden pl-1 text-[var(--ink-muted)]">
-        {Array.from({ length: count }, (_, i) => (
-          <span key={i} className="px-0.5 leading-[1.2em]">
-            •
+// One beat-dot for each empty beat after a chord. Dots are never left out: they say how long the chord
+// lasts. When the bar is short of room they sit closer together, and the bar's font shrinks (see fit).
+function Dots({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <span className="flex flex-1 items-center justify-around gap-0.5 px-1 text-[var(--ink-muted)]" aria-hidden>
+      {Array.from({ length: count }, (_, i) => (
+        <span key={i} className="leading-none">
+          •
+        </span>
+      ))}
+    </span>
+  )
+}
+
+// One bar. Each chord takes a share of the bar for its beats (up to the next chord), and never less than it
+// needs for its name and its dots, so nothing overlaps.
+function Bar({ slots, beats, className }: { slots: { pos: number; token: string }[]; beats: number; className: string }) {
+  if (slots.length === 0) {
+    // An empty bar (drums only, a break) shows its beats as slashes
+    return (
+      <div className={cn("grid items-center", className)} style={{ gridTemplateColumns: `repeat(${beats}, minmax(0, 1fr))` }}>
+        {Array.from({ length: beats }, (_, i) => (
+          <span key={i} className="text-[var(--ink-muted)]">
+            /
           </span>
         ))}
-      </span>
-    ) : null
+      </div>
+    )
+  }
+  const beatOf = slots.map((s) => Math.min(beats - 1, Math.round(s.pos * beats)))
+  // Dots show the beats when a bar has more than one chord, or one chord that isn't on beat 1
+  const showDots = slots.length > 1 || beatOf[0] > 0
+  const segment = (span: number) => ({ flex: `${span} ${span} 0%` })
   return (
-    <>
-      {/* Empty beats before the first chord */}
-      {chordBeats[0] > 0 && (
-        <span className="flex min-w-0 items-center" style={{ gridColumn: `1 / ${chordBeats[0] + 1}` }}>
-          <Dots count={chordBeats[0]} />
+    <div data-fit className={cn("flex items-center", className)}>
+      {showDots && beatOf[0] > 0 && (
+        <span className="flex min-w-max items-center" style={segment(beatOf[0])}>
+          <Dots count={beatOf[0]} />
         </span>
       )}
-      {chordBeats.map((beat, k) => {
-        const next = chordBeats[k + 1] ?? beats
+      {slots.map((slot, i) => {
+        const span = (beatOf[i + 1] ?? beats) - beatOf[i]
         return (
-          <span key={beat} className="flex min-w-0 items-center pr-1.5 leading-none" style={{ gridColumn: `${beat + 1} / ${next + 1}` }}>
-            <Chord token={cells[beat]!} />
-            <Dots count={next - beat - 1} />
+          <span key={i} className="flex min-w-max items-center pr-1" style={segment(span)}>
+            <Chord token={slot.token} />
+            {showDots && <Dots count={span - 1} />}
           </span>
         )
       })}
-    </>
+    </div>
   )
 }
 
@@ -86,35 +105,16 @@ function Row({ bars, beats, final, tail }: { bars: { pos: number; token: string 
     <>
       {bars.map((slots, b) => {
         const last = b === bars.length - 1
-        const cells: (string | null)[] = Array(beats).fill(null)
-        for (const s of slots) cells[Math.min(beats - 1, Math.round(s.pos * beats))] = s.token
-        // Beats share the bar evenly, and a long chord runs into the empty beat after it. When chords sit on
-        // beats next to each other, the chords get smaller and the beats take their width, so they don't overlap.
-        const crowded = cells.some((c, i) => c && cells[i + 1])
         return (
-          <div
+          <Bar
             key={b}
-            data-crowded={crowded || undefined}
+            slots={slots}
+            beats={beats}
             className={cn(
-              "grid min-h-9 items-center border-l-[1.5px] border-l-[var(--ink)] py-1 pl-2",
-              crowded ? "pr-1 text-[13px]" : "pr-3 text-[15px]",
+              "min-h-9 overflow-hidden border-l-[1.5px] border-l-[var(--ink)] py-1 pr-2 pl-2 text-[15px] leading-none",
               last && (final ? "border-r-4 border-r-[var(--ink)] [border-right-style:double]" : "border-r-[1.5px] border-r-[var(--ink)]"),
             )}
-            style={{ gridTemplateColumns: crowded ? `repeat(${cells.filter(Boolean).length}, auto)` : `repeat(${beats}, minmax(0, 1fr))` }}
-          >
-            {crowded || slots.length === 0 ? (
-              cells.map((token, i) =>
-                // A crowded bar leaves out the dots on empty beats to make room for its chords
-                crowded && !token ? null : (
-                  <span key={i} className={cn("whitespace-nowrap leading-none", crowded ? "pr-1" : "pr-1.5")}>
-                    {token ? <Chord token={token} /> : <span className="text-[var(--ink-muted)]">/</span>}
-                  </span>
-                ),
-              )
-            ) : (
-              <BarSpans cells={cells} beats={beats} dots={slots.length > 1} />
-            )}
-          </div>
+          />
         )
       })}
       {/* Empty cells keep a short row's bars in the same columns as the others */}
@@ -184,10 +184,10 @@ export default function ChartPreview({ content }: { content: string }) {
       const room = box.current.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
       // Measure the bars' natural width without zoom, then zoom; both happen before the browser paints
       scaled.current.style.zoom = "1"
-      // A crowded bar whose chords still don't fit gets a smaller font, just enough to fit
-      for (const bar of bars.current.querySelectorAll<HTMLElement>("[data-crowded]")) {
+      // A bar whose chords and dots don't fit gets a smaller font, just enough to fit
+      for (const bar of bars.current.querySelectorAll<HTMLElement>("[data-fit]")) {
         bar.style.fontSize = ""
-        if (bar.scrollWidth > bar.clientWidth) bar.style.fontSize = `${Math.max(10, (13 * bar.clientWidth) / bar.scrollWidth)}px`
+        if (bar.scrollWidth > bar.clientWidth) bar.style.fontSize = `${Math.max(8, (15 * bar.clientWidth) / bar.scrollWidth)}px`
       }
       const natural = bars.current.scrollWidth
       scaled.current.style.zoom = String(natural > room ? Math.max(0.5, room / natural) : 1)
