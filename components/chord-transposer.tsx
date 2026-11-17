@@ -1,40 +1,48 @@
 "use client"
 
-import { useEffect, useMemo, useState, MouseEvent, ChangeEvent } from "react"
+import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
+import Link from "next/link"
+import { ChevronDown, Minus, Plus } from "lucide-react"
 import { detectKeyFromContent, getAllKeys, noteIndex } from "@/lib/chords"
-import { SmartFormatter } from "@/lib/formatter"
 import { renderChart, NotationStyle } from "@/lib/render"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Separator } from "@/components/ui/separator"
 import { createPdf, downloadPdf, pdfFileName } from "@/lib/pdf"
 import { lintChart } from "@/lib/chart-lint"
-import ChartPreview from "@/components/chart-preview"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { midiToChart } from "@/lib/midi-import"
-import Link from "next/link"
-import { ModeToggle } from "@/components/theme-toggle"
+import { useStore } from "@/lib/store"
+import { Button } from "@/components/ui/button"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import ChartPreview from "@/components/chart-preview"
+import { ModeToggle } from "@/components/theme-toggle"
 
-import { useStore } from "@/lib/store"
-
-// Utilities
 // CodeMirror only runs in the browser; loading it separately keeps the first page load light
 const ChartEditor = dynamic(() => import("@/components/chart-editor"), {
   ssr: false,
-  loading: () => <div className="min-h-[380px] rounded-md border bg-background" />,
+  loading: () => <div className="min-h-[380px]" />,
 })
 
 const KEYS = getAllKeys()
-// The usual name of each key, for quick transpose: Db rather than C#, F# rather than Gb
+// The usual name of each key, for the semitone buttons: Db rather than C#, F# rather than Gb
 const KEY_NAMES = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
-const formatter = new SmartFormatter()
+
+const NOTATIONS: { value: NotationStyle; label: string; hint: string }[] = [
+  { value: "default", label: "Chords", hint: "Chord names: C, Am, F" },
+  { value: "roman", label: "Roman", hint: "Roman numerals: I, vi, IV" },
+  { value: "arabic", label: "Numbers", hint: "Numbers: 1, 6m, 4" },
+]
+
 const TEMPLATE_34 = `[Song Number]. [Song Title] ([Source/Book Reference])
 Do = C
 Time Signature = 3/4
@@ -71,7 +79,23 @@ Chorus :
 | F . . . | G . . . | C . . . | C . . . |`
 
 export default function ChordTransposer() {
-  const { original, transposed, currentKey, targetKey, title, orientation, numbersStyle, timeSignature, setOriginal, setTransposed, setCurrentKey, setTargetKey, setTitle, setOrientation, setNumbersStyle, setTimeSignature } = useStore()
+  const {
+    original,
+    transposed,
+    currentKey,
+    targetKey,
+    title,
+    orientation,
+    numbersStyle,
+    timeSignature,
+    setOriginal,
+    setTransposed,
+    setCurrentKey,
+    setTargetKey,
+    setTitle,
+    setNumbersStyle,
+    setTimeSignature,
+  } = useStore()
 
   // Load the chart saved in this browser (see lib/store.ts). This must be the first effect: the ones
   // below write to the store, and a write before loading would save the default chart over the saved one.
@@ -79,138 +103,115 @@ export default function ChordTransposer() {
     useStore.persist.rehydrate()
   }, [])
 
+  // The chart's own key and time signature; a new key also becomes the key to play in
   useEffect(() => {
     const k = detectKeyFromContent(original)
     if (k && k !== currentKey) {
       setCurrentKey(k)
       setTargetKey(k)
     }
-    const sigMatch = original.match(/Time\s*Signature\s*=\s*(\d+\/\d+)/i)
-    if (sigMatch) {
-      const sig = sigMatch[1] === "3/4" ? "3/4" : "4/4"
-      if (sig !== timeSignature) {
-        setTimeSignature(sig)
-      }
+    const sig = original.match(/Time\s*Signature\s*=\s*(\d+\/\d+)/i)?.[1]
+    if (sig) {
+      const next = sig === "3/4" ? "3/4" : "4/4"
+      if (next !== timeSignature) setTimeSignature(next)
     }
-  }, [original, currentKey, targetKey, timeSignature, setCurrentKey, setTargetKey, setTimeSignature])
+  }, [original, currentKey, timeSignature, setCurrentKey, setTargetKey, setTimeSignature])
 
-  const [titleManuallyEdited, setTitleManuallyEdited] = useState(false);
-
+  // The first line is the title, used for the PDF and .txt file names
   useEffect(() => {
-    if (!titleManuallyEdited) {
-      const firstLine = original.split('\n')[0];
-      setTitle(firstLine);
-    }
-  }, [original, setTitle, titleManuallyEdited]);
+    setTitle(original.split("\n")[0])
+  }, [original, setTitle])
 
-  const handleTitleChange = (e: ChangeEvent<HTMLInputElement>) => {
-    setTitleManuallyEdited(true);
-    setTitle(e.target.value);
-  };
+  // The sheet follows the chart, the key and the notation as they change. "transposed" stays empty while
+  // the sheet is the chart as written, so the original spelling is kept.
+  const chartKey = detectKeyFromContent(original)
+  useEffect(() => {
+    const to = targetKey || chartKey
+    if (!chartKey || !to || (to === chartKey && numbersStyle === "default")) setTransposed("")
+    else setTransposed(renderChart(original, to, numbersStyle) ?? "")
+  }, [original, chartKey, targetKey, numbersStyle, setTransposed])
 
-
+  const sheet = transposed || original
+  const playKey = targetKey || chartKey || ""
 
   const problems = useMemo(() => {
     return lintChart(original).map((p) => ({ ...p, line: original.slice(0, p.from).split("\n").length }))
   }, [original])
 
-  // A new or edited chart makes the result panel out of date, so it is cleared; otherwise Export PDF
-  // would print the previous result
-  const replaceOriginal = (chart: string) => {
-    setOriginal(chart)
-    setTransposed("")
+  // Up or down a semitone from the key shown
+  const stepKey = (semitones: number) => {
+    if (!playKey) return
+    setTargetKey(KEY_NAMES[(((noteIndex(playKey) + semitones) % 12) + 12) % 12])
   }
 
-  const handleSmartFormat = () => {
-    const formattedOriginal = formatter.formatChart(original)
-    const formattedTransposed = transposed ? formatter.formatChart(transposed) : ""
-    setOriginal(formattedOriginal)
-    if (formattedTransposed) setTransposed(formattedTransposed)
-  }
-
-  const handleTranspose = (newTargetKey?: string | MouseEvent) => {
-    const detectedKey = detectKeyFromContent(original)
-    const finalTargetKey = typeof newTargetKey === 'string' ? newTargetKey : targetKey
-    if (!detectedKey || !finalTargetKey) return
-    setCurrentKey(detectedKey)
-    const result = renderChart(original, finalTargetKey, numbersStyle)
-    if (result !== null) setTransposed(result)
-  }
-
-  const quickTransposeWhole = (steps: number) => {
-    const detectedKey = detectKeyFromContent(original)
-    if (!detectedKey && !targetKey) return
-    const base = targetKey || detectedKey
-    if (!base) return
-    // shift by whole steps = 2 semitones
-    const semitones = steps * 2
-    const shiftedKey = shiftKey(base, semitones)
-    setTargetKey(shiftedKey)
-    handleTranspose(shiftedKey)
-  }
-
-  const quickTransposeHalf = (steps: number) => {
-    const detectedKey = detectKeyFromContent(original)
-    if (!detectedKey && !targetKey) return
-    const base = targetKey || detectedKey
-    if (!base) return
-    const shiftedKey = shiftKey(base, steps)
-    setTargetKey(shiftedKey)
-    handleTranspose(shiftedKey)
-  }
-
-  function shiftKey(key: string, semitones: number) {
-    return KEY_NAMES[(((noteIndex(key) + semitones) % 12) + 12) % 12]
-  }
-
-
-
-  const [pdfError, setPdfError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // The first export loads the PDF fonts and can take a moment; the button says so and can't be pressed twice
+  const [exporting, setExporting] = useState(false)
+  // A moved chart says its key in the file name, so a folder of PDFs doesn't hold two copies with the same name
+  const fileTitle = chartKey && playKey !== chartKey ? `${title} in ${playKey}` : title
 
   const handleExportPDF = async () => {
-    const content = transposed || original
-    if (!content) return
-    setPdfError(null)
+    if (!sheet.trim() || exporting) return
+    setError(null)
+    setExporting(true)
     try {
-      downloadPdf(await createPdf(content, { style: "grid", orientation }), title)
+      downloadPdf(await createPdf(sheet, { style: "grid", orientation }), fileTitle)
     } catch (err) {
       console.error(err)
-      setPdfError("Could not create the PDF. Please check the chart for unusual characters and try again.")
+      setError("Couldn't create the PDF. Check the chart for unusual characters and try again.")
+    } finally {
+      setExporting(false)
     }
   }
 
-  const [importError, setImportError] = useState<string | null>(null)
+  // "Copy text" says "Copied" for a moment, so you know it worked
+  const [copied, setCopied] = useState(false)
+  const copyText = async () => {
+    await navigator.clipboard.writeText(sheet)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  // Replacing the chart asks first, unless the chart is empty or still an untouched template
+  const untouched = [TEMPLATE_34, TEMPLATE_44, useStore.getInitialState().original].includes(original)
+  const confirmReplace = (what: string) => !original.trim() || untouched || window.confirm(`Replace the current chart with ${what}?`)
+
+  const newChart = (chart: string, what: string, signature?: "3/4" | "4/4") => {
+    if (!confirmReplace(what)) return
+    setError(null)
+    setOriginal(chart)
+    if (signature) setTimeSignature(signature)
+  }
+
+  const openTxtInput = useRef<HTMLInputElement>(null)
+  const midiInput = useRef<HTMLInputElement>(null)
+
+  const handleOpenTxt = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    setError(null)
+    try {
+      const text = (await file.text()).replace(/\r\n/g, "\n")
+      if (confirmReplace(file.name)) setOriginal(text)
+    } catch (err) {
+      console.error(err)
+      setError(`Couldn't read ${file.name}.`)
+    }
+  }
 
   // A MIDI file of block chords, e.g. Logic Pro region chords exported with File > Export > Selection as MIDI File
   const handleImportMidi = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     e.target.value = ""
     if (!file) return
-    setImportError(null)
+    setError(null)
     try {
       const chart = midiToChart(new Uint8Array(await file.arrayBuffer()), { title: file.name.replace(/\.midi?$/i, "") })
-      if (original.trim() && !window.confirm("Replace the current chart with the imported one?")) return
-      replaceOriginal(chart)
+      if (confirmReplace(file.name)) setOriginal(chart)
     } catch (err) {
       console.error(err)
-      setImportError(err instanceof Error ? err.message : "Could not read this MIDI file.")
-    }
-  }
-
-  const [openError, setOpenError] = useState<string | null>(null)
-
-  const handleOpenTxt = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ""
-    if (!file) return
-    setOpenError(null)
-    try {
-      const text = (await file.text()).replace(/\r\n/g, "\n")
-      if (original.trim() && !window.confirm(`Replace the current chart with ${file.name}?`)) return
-      replaceOriginal(text)
-    } catch (err) {
-      console.error(err)
-      setOpenError("Could not read this file.")
+      setError(err instanceof Error ? err.message : `Couldn't read ${file.name}.`)
     }
   }
 
@@ -223,405 +224,271 @@ export default function ChordTransposer() {
     setTimeout(() => URL.revokeObjectURL(url), 10_000)
   }
 
-  const extractTitleFromContent = (content: string): string | null => {
-    const titleMatch = content.match(/^\s*(\[.*\]\.\s*.*)/)
-    return titleMatch ? titleMatch[1].trim() : null
-  }
-
-  // Loading a template replaces the chart, so ask first unless the chart is empty or still a template
-  const loadTemplate = (template: string, signature: "3/4" | "4/4") => {
-    const untouched = [TEMPLATE_34, TEMPLATE_44, useStore.getInitialState().original].includes(original)
-    if (original.trim() && !untouched && !window.confirm("Replace the current chart with the template?")) return
-    replaceOriginal(template)
-    setTimeSignature(signature)
-  }
+  const notation = NOTATIONS.find((n) => n.value === numbersStyle) ?? NOTATIONS[0]
+  const sheetCaption = !chartKey
+    ? "Add a line like \u201cDo = C\u201d to the chart to change its key."
+    : playKey === chartKey
+      ? numbersStyle === "default"
+        ? `In ${chartKey}, as written.`
+        : `In ${chartKey}, as ${notation.label.toLowerCase()}.`
+      : `In ${playKey}, moved from ${chartKey}${numbersStyle === "default" ? "" : `, as ${notation.label.toLowerCase()}`}.`
 
   return (
-    <section className="space-y-6">
-      <header className="flex items-start justify-between">
+    <div className="space-y-5">
+      <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Chord Chart Maker & Transposer</h1>
-          <p className="text-sm pt-2 text-muted-foreground">From an MD to fellow MDs (i love MD(s))</p>
+          <h1 className="text-2xl font-semibold tracking-tight md:text-[1.75rem]">Chord Chart Maker &amp; Transposer</h1>
+          <p className="mt-1 text-sm text-muted-foreground">From an MD to fellow MDs (i love MD(s))</p>
         </div>
-        
         <ModeToggle />
       </header>
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-foreground">Chart Settings</CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {/* Title */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="title">Title</Label>
-            <Input id="title" placeholder="Chord Chart" value={title} readOnly className="bg-muted" />
-          </div>
 
-          {/* Detected Key */}
-          <div className="flex flex-col gap-2">
-            <Label>Detected Key</Label>
-            <div className="rounded-md border bg-card px-3 py-2 text-sm text-muted-foreground">{currentKey || "—"}</div>
-          </div>
-
-          {/* Target Key */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="targetKey">Target Key</Label>
-            <Select value={targetKey} onValueChange={setTargetKey}>
-              <SelectTrigger id="targetKey" className="w-full">
-                <SelectValue placeholder="Choose key" />
-              </SelectTrigger>
-              <SelectContent>
-                {KEYS.map((k) => (
-                  <SelectItem key={k} value={k}>
-                    {k}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label>Time Signature</Label>
-            <div className="flex items-center gap-2">
-              <div className="inline-flex overflow-hidden rounded-md border">
-                <Button
-                  type="button"
-                  variant={timeSignature === "4/4" ? "default" : "secondary"}
-                  className="rounded-none"
-                  onClick={() => loadTemplate(TEMPLATE_44, "4/4")}
-                >
-                  4/4
-                </Button>
-                <Button
-                  type="button"
-                  variant={timeSignature === "3/4" ? "default" : "secondary"}
-                  className="rounded-none border-l"
-                  onClick={() => loadTemplate(TEMPLATE_34, "3/4")}
-                >
-                  3/4
-                </Button>
-              </div>
-            </div>
-            <div className="text-xs text-muted-foreground">Switching updates the template and signature line.</div>
-          </div>
-
-          {/* Transpose + Quick Group */}
-          <div className="md:col-span-3 flex flex-col gap-3">
-            <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-              <Button className="md:w-[220px]" onClick={handleTranspose} disabled={!currentKey || !targetKey}>
-                Transpose
-              </Button>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="text-sm text-muted-foreground">Quick:</div>
-                <div className="flex flex-wrap gap-2">
-                  <div className="inline-flex overflow-hidden rounded-md border">
-                    <Button variant="secondary" onClick={() => quickTransposeWhole(1)} className="rounded-none">
-                      +1
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() => quickTransposeWhole(-1)}
-                      className="rounded-none border-l"
-                    >
-                      -1
-                    </Button>
-                    <Button variant="secondary" onClick={() => quickTransposeHalf(1)} className="rounded-none border-l">
-                      +<span className="-translate-y-px"><sup>1</sup>&frasl;<sub>2</sub></span>
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      onClick={() => quickTransposeHalf(-1)}
-                      className="rounded-none border-l"
-                    >
-                      -<span className="-translate-y-px"><sup>1</sup>&frasl;<sub>2</sub></span>
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Number System (radio) */}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="flex flex-col gap-3 md:col-span-3">
-                <Label>Notation</Label>
-                <RadioGroup
-                  className="grid grid-cols-3 gap-3"
-                  value={numbersStyle}
-                  onValueChange={(v: NotationStyle) => {
-                    setNumbersStyle(v)
-                    const key = targetKey || detectKeyFromContent(original)
-                    if (!key) return
-                    const converted = renderChart(original, key, v)
-                    if (converted !== null) setTransposed(converted)
-                  }}
-                >
-                  <div className="flex items-center gap-2 rounded-md border p-2">
-                    <RadioGroupItem id="default" value="default" />
-                    <Label htmlFor="default">Default (ABC)</Label>
-                  </div>
-                  <div className="flex items-center gap-2 rounded-md border p-2">
-                    <RadioGroupItem id="roman" value="roman" />
-                    <Label htmlFor="roman">Roman (i, ii, iii)</Label>
-                  </div>
-                  <div className="flex items-center gap-2 rounded-md border p-2">
-                    <RadioGroupItem id="arabic" value="arabic" />
-                    <Label htmlFor="arabic">Arabic (1, 2m, 3m)</Label>
-                  </div>
-                </RadioGroup>
-              </div>
-            </div>
-
-            {/* PDF + Format */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="orientation">PDF Orientation</Label>
-                <Select value={orientation} onValueChange={(v: "portrait" | "landscape") => setOrientation(v)}>
-                  <SelectTrigger id="orientation">
+      {/* What you play and how you hand it out: key, notation, export. It stays in view while you scroll on
+          wide screens; on a phone it wraps to three lines, too tall to keep on screen. */}
+      <div className="-mx-4 border-y bg-card px-4 py-3 md:sticky md:top-2 md:z-20 md:mx-0 md:rounded-xl md:border">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+          <div className="flex items-center gap-2" role="group" aria-label="Key">
+            <span className="text-sm text-muted-foreground">Key</span>
+            {chartKey ? (
+              <>
+                <span className="text-sm font-medium tabular-nums" title="The key the chart is written in">
+                  {chartKey}
+                </span>
+                <span aria-hidden className="text-muted-foreground">
+                  →
+                </span>
+                <Select value={playKey} onValueChange={setTargetKey}>
+                  <SelectTrigger className="h-9 w-[4.75rem]" aria-label="Key to play in">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="portrait">Portrait</SelectItem>
-                    <SelectItem value="landscape">Landscape</SelectItem>
+                    {KEYS.map((k) => (
+                      <SelectItem key={k} value={k}>
+                        {k}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-              </div>
-
-              <div className="flex items-end gap-2">
-                <Button className="w-full" onClick={handleSmartFormat}>
-                  Smart Format
-                </Button>
-              </div>
-
-              <div className="flex items-end gap-2">
-                <Button variant="default" className="w-full" onClick={handleExportPDF}>
-                  Export PDF
-                </Button>
-              </div>
-
-              <div className="flex items-end gap-2">
-                <Link href="/advanced-export" className="w-full">
-                  <Button className="w-full">Advanced Export</Button>
-                </Link>
-              </div>
-            </div>
-            {pdfError && <p className="text-sm text-destructive">{pdfError}</p>}
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-foreground h-1 flex items-center">Original</CardTitle>
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="secondary">Tips</Button>
-              </DialogTrigger>
-              <DialogContent className="max-h-[80vh] overflow-y-auto md:max-w-4xl">
-                <DialogHeader>
-                  <DialogTitle>How to Write a Chord Chart</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                 <div>
-                    <h3 className="font-semibold">1. Start with a Template 🚀</h3>
-                    <p>To get started, follow the template given by your desired time signature, then fill in the essential song information at the top of the file. ✍️</p>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">2. Write Your Chord Progressions 🎸</h3>
-                    <p>Chord lines are written inside measures (or bars) separated by the <code>|</code> symbol. Inside each measure, write the chord name and use dots (<code>.</code>) to represent the remaining beats. You can also add details by writing text inside parentheses right after the chord — for example, <code>F(up)</code>. Try to stick to a maximum of 4 bars per line for a clean layout. 📏</p>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">3. Chord Notation Guide 📖</h3>
-                    <p>The program recognizes a wide variety of chords! Use the following format to ensure they are processed correctly ✅. Here is a table summarizing how to write various chord types that the program will recognize.</p>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Chord Type</TableHead>
-                          <TableHead>How to Write</TableHead>
-                          <TableHead>Examples</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        <TableRow>
-                          <TableCell>Major</TableCell>
-                          <TableCell>Just the root note</TableCell>
-                          <TableCell>C, F, A#</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>Minor</TableCell>
-                          <TableCell>Root + m</TableCell>
-                          <TableCell>Am, Dm, G#m</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>Dominant 7th</TableCell>
-                          <TableCell>Root + 7</TableCell>
-                          <TableCell>G7, C7, F#7</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>Major 7th</TableCell>
-                          <TableCell>Root + M7 or maj7</TableCell>
-                          <TableCell>CM7, Fmaj7</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>Minor 7th</TableCell>
-                          <TableCell>Root + m7</TableCell>
-                          <TableCell>Dm7, Am7, Ebm7</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>Suspended</TableCell>
-                          <TableCell>Root + sus + Number</TableCell>
-                          <TableCell>Csus4, Gsus2</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>Add</TableCell>
-                          <TableCell>Root + add + Number</TableCell>
-                          <TableCell>Cadd9, Gadd11</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>Diminished</TableCell>
-                          <TableCell>Root + dim</TableCell>
-                          <TableCell>Bdim, C#dim</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>Augmented</TableCell>
-                          <TableCell>Root + aug</TableCell>
-                          <TableCell>Caug, Gaug</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>Slash Chord</TableCell>
-                          <TableCell>Chord + / + Bass Note</TableCell>
-                          <TableCell>G/B, Am/G, D/F#</TableCell>
-                        </TableRow>
-                        <TableRow>
-                          <TableCell>Complex Chord</TableCell>
-                          <TableCell>A combination of the above</TableCell>
-                          <TableCell>Am7/G, Cmaj9</TableCell>
-                        </TableRow>
-                      </TableBody>
-                    </Table>
-                  </div>
-                  <br></br>
-                  <div>
-                    <h3 className="font-semibold">4. Finalize Your Chart 🎶</h3>
-                    <p>Once your chart is written, use these tools to finish up:</p>
-                    <ol className="list-decimal list-inside space-y-2">
-                      <li>
-                        <strong>✨ Format Your Chart</strong>
-                        <ul className="list-disc list-inside pl-4">
-                          <li>Use the <strong>Smart Format</strong> button to automatically clean up spacing and align all the bars vertically for a professional look.</li>
-                          <li><strong>Note</strong>: For perfect alignment, this feature requires a monospaced font (like Courier).</li>
-                        </ul>
-                      </li>
-                      <li>
-                        <strong>🔄 Transpose to a New Key</strong>
-                        <ul className="list-disc list-inside pl-4">
-                          <li>Select a <strong>Target Key</strong> from the dropdown menu.</li>
-                          <li>Click the <strong>Transpose</strong> button. The transposed version will appear in the right-hand panel.</li>
-                        </ul>
-                      </li>
-                      <li>
-                        <strong>💾 Save and Export</strong>
-                        <ul className="list-disc list-inside pl-4">
-                          <li>You can save the transposed chart in several ways:
-                            <ul className="list-disc list-inside pl-4">
-                              <li><strong>As a Text File</strong>: Export your chart as a simple <code>.txt</code> file.</li>
-                              <li><strong>As a PDF</strong>: Quickly save the chart as a PDF document.</li>
-                              <li><strong>Advanced Export</strong>: For PDFs, you can customize the font type and size in the advanced export section.</li>
-                            </ul>
-                          </li>
-                        </ul>
-                      </li>
-                    </ol>
-                  </div>
+                <div className="flex">
+                  <Tooltip delayDuration={500}>
+                    <TooltipTrigger asChild>
+                      <Button variant="outline" size="icon" className="size-9 rounded-r-none" onClick={() => stepKey(-1)} aria-label="Down a semitone">
+                        <Minus />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Down a semitone</TooltipContent>
+                  </Tooltip>
+                  <Tooltip delayDuration={500}>
+                    <TooltipTrigger asChild>
+                      <Button variant="outline" size="icon" className="-ml-px size-9 rounded-l-none" onClick={() => stepKey(1)} aria-label="Up a semitone">
+                        <Plus />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Up a semitone</TooltipContent>
+                  </Tooltip>
                 </div>
-              </DialogContent>
-            </Dialog>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <ChartEditor value={original} onChange={replaceOriginal} ariaLabel="Original chord chart" />
+              </>
+            ) : (
+              <span className="text-sm text-muted-foreground">add &ldquo;Do = C&rdquo; to the chart</span>
+            )}
+          </div>
+
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            value={numbersStyle}
+            onValueChange={(v) => v && setNumbersStyle(v as NotationStyle)}
+            aria-label="Notation"
+          >
+            {NOTATIONS.map((n) => (
+              <ToggleGroupItem key={n.value} value={n.value} title={n.hint} className="h-9 px-3">
+                {n.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+
+          <div className="flex items-center gap-2 md:ml-auto">
+            <Button onClick={handleExportPDF} disabled={!sheet.trim() || exporting} className="min-w-[7.5rem]">
+              {exporting ? "Exporting…" : "Export PDF"}
+            </Button>
+            <Button variant="ghost" asChild>
+              <Link href="/advanced-export">PDF options</Link>
+            </Button>
+          </div>
+        </div>
+        {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {/* The chart, as you write it */}
+        <section
+          aria-labelledby="chart-heading"
+          className="flex flex-col rounded-xl border bg-card has-[.cm-focused]:border-ring has-[.cm-focused]:ring-3 has-[.cm-focused]:ring-ring/20"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+            <h2 id="chart-heading" className="font-medium">
+              Chart
+            </h2>
+            <div className="flex flex-wrap items-center gap-1">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    New <ChevronDown className="opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => newChart(TEMPLATE_44, "the 4/4 template", "4/4")}>4/4 template</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => newChart(TEMPLATE_34, "the 3/4 template", "3/4")}>3/4 template</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => newChart("", "an empty chart")}>Empty chart</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    File <ChevronDown className="opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => openTxtInput.current?.click()}>Open .txt…</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={handleSaveTxt} disabled={!original.trim()}>
+                    Save as .txt
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => midiInput.current?.click()}>Import chords from MIDI…</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <input ref={openTxtInput} type="file" accept=".txt,text/plain" className="hidden" onChange={handleOpenTxt} />
+              <input ref={midiInput} type="file" accept=".mid,.midi,audio/midi" className="hidden" onChange={handleImportMidi} />
+              <ChartGuide />
+            </div>
+          </div>
+          <div className="px-1 pt-1">
+            <ChartEditor value={original} onChange={setOriginal} ariaLabel="Original chord chart" />
+          </div>
+          <div className="min-h-11 border-t px-4 py-2.5 text-sm" aria-live="polite">
             {problems.length > 0 ? (
-              <ul className="space-y-0.5 text-sm" aria-label="Problems in the chart">
+              <ul className="space-y-0.5" aria-label="Problems in the chart">
                 {problems.slice(0, 3).map((p, i) => (
-                  <li key={i} className={p.severity === "error" ? "text-destructive" : "text-amber-600 dark:text-amber-400"}>
+                  <li key={i} className={p.severity === "error" ? "text-destructive" : "text-amber-700 dark:text-amber-400"}>
                     Line {p.line}: {p.message}
                   </li>
                 ))}
-                {problems.length > 3 && <li className="text-muted-foreground">…and {problems.length - 3} more, underlined above.</li>}
+                {problems.length > 3 && <li className="text-muted-foreground">And {problems.length - 3} more, underlined above.</li>}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">Saved in this browser as you type. Include a line like &quot;Do = C&quot;.</p>
+              <p className="text-muted-foreground">Saved in this browser as you type.</p>
             )}
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" asChild>
-                <label className="cursor-pointer">
-                  Open .txt
-                  <input type="file" accept=".txt,text/plain" className="sr-only" onChange={handleOpenTxt} />
-                </label>
-              </Button>
-              <Button variant="outline" onClick={handleSaveTxt} disabled={!original.trim()}>
-                Save .txt
-              </Button>
-              <Button variant="outline" asChild>
-                <label className="cursor-pointer">
-                  Import MIDI
-                  <input type="file" accept=".mid,.midi,audio/midi" className="sr-only" onChange={handleImportMidi} />
-                </label>
-              </Button>
-              <Button variant="secondary" onClick={() => replaceOriginal("")}>
-                Clear
-              </Button>
-            </div>
-            {importError && <p className="text-sm text-destructive">{importError}</p>}
-            {openError && <p className="text-sm text-destructive">{openError}</p>}
-          </CardContent>
-        </Card>
+          </div>
+        </section>
 
-        <Card>
-          <Tabs defaultValue="preview" className="gap-0">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-foreground h-7 flex items-center">{transposed ? "Transposed / Converted" : "Preview"}</CardTitle>
-            <TabsList>
-              <TabsTrigger value="preview">Preview</TabsTrigger>
-              <TabsTrigger value="text">Text</TabsTrigger>
-            </TabsList>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-3">
-            <TabsContent value="preview" className="space-y-3">
-              <ChartPreview content={transposed || original} />
-              <p className="text-sm text-muted-foreground">
-                {transposed ? "The transposed chart, as Export PDF prints it." : "Your chart as Export PDF prints it. Transpose to see it in another key."}
-              </p>
-            </TabsContent>
-            <TabsContent value="text" className="space-y-3">
-            {/* Shows the same chart as the Preview tab: the result, or your chart until you transpose */}
-            <ChartEditor value={transposed || original} readOnly ariaLabel="Transposed chord chart" />
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm text-muted-foreground">
-                {transposed ? "The transposed chart, as Export PDF prints it." : "Your chart as Export PDF prints it. Transpose to see it in another key."}
+        {/* The sheet: what Export PDF prints */}
+        <section aria-labelledby="sheet-heading" className="flex flex-col rounded-xl border bg-card">
+          <Tabs defaultValue="preview" className="flex-1 gap-0">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2">
+              <div className="flex items-baseline gap-3">
+                <h2 id="sheet-heading" className="font-medium">
+                  Sheet
+                </h2>
+                <p className="text-sm text-muted-foreground">{sheetCaption}</p>
               </div>
-              <div className="flex shrink-0 gap-2">
-                <Button variant="secondary" onClick={() => setTransposed("")} disabled={!transposed} title="Go back to your chart as written">
-                  Clear result
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => navigator.clipboard.writeText(transposed || original)}
-                  disabled={!(transposed || original)}
-                >
-                  Copy
-                </Button>
-              </div>
+              <TabsList className="h-8">
+                <TabsTrigger value="preview" className="px-3 text-xs">
+                  Preview
+                </TabsTrigger>
+                <TabsTrigger value="text" className="px-3 text-xs">
+                  Text
+                </TabsTrigger>
+              </TabsList>
             </div>
+            {/* The page lies on the desk colour, so it reads as paper */}
+            <TabsContent value="preview" className="rounded-b-xl bg-muted p-2 sm:p-4">
+              <ChartPreview content={sheet} />
             </TabsContent>
-          </CardContent>
+            <TabsContent value="text">
+              <div className="px-1 pt-1">
+                <ChartEditor value={sheet} readOnly ariaLabel="Transposed chord chart" />
+              </div>
+              <div className="flex justify-end border-t px-4 py-2">
+                <Button variant="ghost" size="sm" onClick={copyText} disabled={!sheet.trim()} className="min-w-[5.5rem]" aria-live="polite">
+                  {copied ? "Copied" : "Copy text"}
+                </Button>
+              </div>
+            </TabsContent>
           </Tabs>
-        </Card>
+        </section>
       </div>
+    </div>
+  )
+}
 
-      <Separator />
-      <div className="text-xs text-muted-foreground">
-        Tip: READ THE TIPS!.
-      </div>
-    </section>
+// How to write a chart, opened from the chart's toolbar
+function ChartGuide() {
+  const example = `Song Title
+Do = D
+Time Signature = 4/4
+Tempo (1/4) = 72 BPM
+
+Verse : Soft
+| D . . . | Em . D/F# . | G . . . | A(up) . . . |
+| Bm7 . . . | G . A . | D | D | x2`
+  const chords: [string, string, string][] = [
+    ["Major", "The root note", "C, F, Bb"],
+    ["Minor", "Root + m", "Am, F#m"],
+    ["Seventh", "Root + 7", "G7, E7"],
+    ["Major seventh", "Root + maj7 or M7", "Cmaj7, FM7"],
+    ["Minor seventh", "Root + m7", "Dm7, Bm7"],
+    ["Suspended", "Root + sus2 or sus4", "Dsus4, A7sus4"],
+    ["Added note", "Root + add + number", "Cadd9"],
+    ["Diminished / augmented", "Root + dim / aug", "Bdim, Caug"],
+    ["Slash chord", "Chord / bass note", "G/B, D/F#"],
+  ]
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm">
+          Guide
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>How to write a chart</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-5 text-sm leading-relaxed">
+          <pre className="overflow-x-auto rounded-lg bg-muted p-3 font-mono text-[13px] leading-6">{example}</pre>
+          <ul className="list-disc space-y-1.5 pl-5">
+            <li>The first line is the title. The line <code>Do = D</code> gives the key; without it the chart can&apos;t change key.</li>
+            <li>A name and a colon start a section: <code>Verse :</code>. Text after the colon is a note for the band, like <code>Soft</code>.</li>
+            <li>Bars go between <code>|</code> signs, with one dot for each beat a chord is held: <code>| Em . D/F# . |</code> is Em for two beats, then D/F#.</li>
+            <li>A bar with one chord can skip the dots: <code>| D |</code>. Text after the last bar, like <code>x2</code>, is printed at the end of the line.</li>
+            <li>Notes go in brackets right after a chord: <code>A(up)</code> for a push. They are printed small and never change key.</li>
+          </ul>
+          <div>
+            <h3 className="mb-2 font-medium">Chord spellings the app reads</h3>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Chord</TableHead>
+                  <TableHead>How to write it</TableHead>
+                  <TableHead>Examples</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {chords.map(([name, how, examples]) => (
+                  <TableRow key={name}>
+                    <TableCell>{name}</TableCell>
+                    <TableCell>{how}</TableCell>
+                    <TableCell className="font-mono text-[13px]">{examples}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <p className="text-muted-foreground">
+            Pick a key above to move the whole chart; the sheet updates as you go. Export PDF prints the sheet as you see it.
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }

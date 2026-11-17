@@ -127,6 +127,18 @@ Do = D
     expect(barXs[0]).toHaveLength(3);
   });
 
+  it('lines up the bars of an untidy chart in Courier, without the chart being tidied first', async () => {
+    const untidy = 'Song\nDo = C\n| C . . . | Am7 . . . |\n| Dm7 . G . | C . . . |';
+    const rows = drawnRows(await createChartPdf(untidy, { orientation: 'portrait', fontFamily: 'Courier' })).slice(1);
+    const barXs = rows.map((row) => {
+      const xs: number[] = [];
+      for (const piece of row) [...piece.text].forEach((c, i) => c === '|' && xs.push(Math.round(piece.x + i * piece.size * 0.6)));
+      return xs;
+    }).filter((xs) => xs.length > 0);
+    expect(barXs).toHaveLength(2);
+    expect(barXs[1]).toEqual(barXs[0]);
+  });
+
   it('does not leave the first column empty below the title for a long chart without sections', async () => {
     // 33 lines fit in an empty landscape column (35 rows) but not below the title (31), so they used to move whole
     const long = 'Song\nDo = C\n\n' + Array.from({ length: 33 }, () => '| C . . . | F . . . | G . . . | C . . . |').join('\n');

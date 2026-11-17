@@ -343,7 +343,7 @@ export async function createGridPdf(content: string, options: GridPdfOptions = {
     const top = height - MARGIN_Y
     drawRich(page, song.title, left, top - 20, titleSize, fonts.bold, fonts.symBold, INK)
     if (song.structure) {
-      drawRich(page, song.structure.split(/\s*,\s*/).join("  ·  "), left, top - 36, 8.5, fonts.regular, fonts.sym, MUTED)
+      drawRich(page, song.structure.split(/\s*,\s*/).join("  →  "), left, top - 36, 8.5, fonts.regular, fonts.sym, MUTED)
     }
     if (keyText) drawRich(page, keyText, right - keyWidth, top - 18, 13, fonts.bold, fonts.symBold, INK)
     if (info) drawRich(page, info, right - infoWidth, top - 33, 9.5, fonts.regular, fonts.sym, MUTED)

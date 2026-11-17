@@ -4,25 +4,26 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  /* Palette: a cool grey desk, white surfaces and paper, one ink-blue accent (chords, main action, focus) */
+  --background: #edeff3;
+  --foreground: #1b1e25;
+  --card: #ffffff;
+  --card-foreground: #1b1e25;
+  --popover: #ffffff;
+  --popover-foreground: #1b1e25;
+  --primary: #2b54c8;
+  --primary-foreground: #ffffff;
+  --secondary: #e3e6ec;
+  --secondary-foreground: #1b1e25;
+  --muted: #e8ebf0;
+  --muted-foreground: #646b78;
+  --accent: #e8ebf0;
+  --accent-foreground: #1b1e25;
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: #d9dde4;
+  --input: #cdd2da;
+  --ring: #2b54c8;
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -38,7 +39,7 @@
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
   /* Chart editor */
-  --chart-chord: oklch(0.45 0.16 260);
+  --chart-chord: #2b54c8;
   --chart-section: oklch(0.5 0.17 30);
   --chart-meta: oklch(0.5 0.1 150);
   --chart-note: oklch(0.55 0.02 260);
@@ -46,25 +47,25 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  --background: #14161b;
+  --foreground: #e8eaee;
+  --card: #1c1f26;
+  --card-foreground: #e8eaee;
+  --popover: #1c1f26;
+  --popover-foreground: #e8eaee;
+  --primary: #8ea6ff;
+  --primary-foreground: #0f1730;
+  --secondary: #2a2e37;
+  --secondary-foreground: #e8eaee;
+  --muted: #252932;
+  --muted-foreground: #9aa1ad;
+  --accent: #2a2e37;
+  --accent-foreground: #e8eaee;
   --destructive: oklch(0.396 0.141 25.723);
   --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
+  --border: #2c313b;
+  --input: #363b46;
+  --ring: #8ea6ff;
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
@@ -78,7 +79,7 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(0.269 0 0);
   --sidebar-ring: oklch(0.439 0 0);
-  --chart-chord: oklch(0.78 0.12 250);
+  --chart-chord: #8ea6ff;
   --chart-section: oklch(0.78 0.13 50);
   --chart-meta: oklch(0.78 0.11 150);
   --chart-note: oklch(0.7 0.02 260);
@@ -130,14 +131,76 @@
 
   * {
 
-    @apply border-border outline-ring/50 transition-colors duration-200;
+    @apply border-border outline-ring/50;
 
   }
 
   body {
 
-    @apply bg-background text-foreground transition-colors duration-200;
+    @apply bg-background text-foreground;
 
   }
 
+}
+
+/* The chart preview is drawn as the printed page: white paper and dark ink in either theme, in the
+   PDF's typeface */
+.paper {
+  --ink: #1b1e25;
+  --ink-muted: #646b78;
+  color-scheme: light;
+  background: #ffffff;
+  color: var(--ink);
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  box-shadow: 0 0 0 1px #d4d8df;
+}
+.dark .paper {
+  box-shadow: none;
+}
+
+/* Motion. A strong ease-out: movement starts at once and settles, so the interface answers immediately. */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* Buttons and segments give way a little when pressed, so a press always feels heard. Only the
+   properties that change are animated (the generated button animates "all"). */
+[data-slot="button"],
+[data-slot="toggle-group-item"] {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: 160ms;
+  transition-timing-function: var(--ease-out);
+}
+[data-slot="button"]:not(:disabled):active,
+[data-slot="toggle-group-item"]:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+/* Menus, lists, tooltips and dialogs open with the same ease-out */
+[data-slot="dropdown-menu-content"],
+[data-slot="dropdown-menu-sub-content"],
+[data-slot="select-content"],
+[data-slot="tooltip-content"],
+[data-slot="dialog-content"] {
+  --tw-ease: var(--ease-out);
+}
+
+/* Reduced motion: keep the fades, drop the movement */
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="button"]:active,
+  [data-slot="toggle-group-item"]:active {
+    transform: none;
+  }
+  [data-slot="dropdown-menu-content"],
+  [data-slot="dropdown-menu-sub-content"],
+  [data-slot="select-content"],
+  [data-slot="tooltip-content"],
+  [data-slot="dialog-content"] {
+    --tw-enter-scale: 1;
+    --tw-exit-scale: 1;
+    --tw-enter-translate-x: 0;
+    --tw-enter-translate-y: 0;
+    --tw-exit-translate-x: 0;
+    --tw-exit-translate-y: 0;
+  }
 }
