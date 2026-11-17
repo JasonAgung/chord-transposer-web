@@ -1,19 +1,21 @@
 "use client"
 
-import { useEffect, useState, MouseEvent, ChangeEvent } from "react"
+import { useEffect, useMemo, useState, MouseEvent, ChangeEvent } from "react"
+import dynamic from "next/dynamic"
 import { detectKeyFromContent, getAllKeys, noteIndex } from "@/lib/chords"
 import { SmartFormatter } from "@/lib/formatter"
 import { renderChart, NotationStyle } from "@/lib/render"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Separator } from "@/components/ui/separator"
-import { cn } from "@/lib/utils"
-import { createChartPdf, downloadPdf } from "@/lib/pdf"
+import { createPdf, downloadPdf, pdfFileName } from "@/lib/pdf"
+import { lintChart } from "@/lib/chart-lint"
+import ChartPreview from "@/components/chart-preview"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { midiToChart } from "@/lib/midi-import"
 import Link from "next/link"
 import { ModeToggle } from "@/components/theme-toggle"
@@ -23,6 +25,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useStore } from "@/lib/store"
 
 // Utilities
+// CodeMirror only runs in the browser; loading it separately keeps the first page load light
+const ChartEditor = dynamic(() => import("@/components/chart-editor"), {
+  ssr: false,
+  loading: () => <div className="min-h-[380px] rounded-md border bg-background" />,
+})
+
 const KEYS = getAllKeys()
 // The usual name of each key, for quick transpose: Db rather than C#, F# rather than Gb
 const KEY_NAMES = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
@@ -65,6 +73,12 @@ Chorus :
 export default function ChordTransposer() {
   const { original, transposed, currentKey, targetKey, title, orientation, numbersStyle, timeSignature, setOriginal, setTransposed, setCurrentKey, setTargetKey, setTitle, setOrientation, setNumbersStyle, setTimeSignature } = useStore()
 
+  // Load the chart saved in this browser (see lib/store.ts). This must be the first effect: the ones
+  // below write to the store, and a write before loading would save the default chart over the saved one.
+  useEffect(() => {
+    useStore.persist.rehydrate()
+  }, [])
+
   useEffect(() => {
     const k = detectKeyFromContent(original)
     if (k && k !== currentKey) {
@@ -95,6 +109,10 @@ export default function ChordTransposer() {
   };
 
 
+
+  const problems = useMemo(() => {
+    return lintChart(original).map((p) => ({ ...p, line: original.slice(0, p.from).split("\n").length }))
+  }, [original])
 
   // A new or edited chart makes the result panel out of date, so it is cleared; otherwise Export PDF
   // would print the previous result
@@ -154,7 +172,7 @@ export default function ChordTransposer() {
     if (!content) return
     setPdfError(null)
     try {
-      downloadPdf(await createChartPdf(content, { orientation }), title)
+      downloadPdf(await createPdf(content, { style: "grid", orientation }), title)
     } catch (err) {
       console.error(err)
       setPdfError("Could not create the PDF. Please check the chart for unusual characters and try again.")
@@ -177,6 +195,32 @@ export default function ChordTransposer() {
       console.error(err)
       setImportError(err instanceof Error ? err.message : "Could not read this MIDI file.")
     }
+  }
+
+  const [openError, setOpenError] = useState<string | null>(null)
+
+  const handleOpenTxt = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    setOpenError(null)
+    try {
+      const text = (await file.text()).replace(/\r\n/g, "\n")
+      if (original.trim() && !window.confirm(`Replace the current chart with ${file.name}?`)) return
+      replaceOriginal(text)
+    } catch (err) {
+      console.error(err)
+      setOpenError("Could not read this file.")
+    }
+  }
+
+  const handleSaveTxt = () => {
+    const url = URL.createObjectURL(new Blob([original], { type: "text/plain;charset=utf-8" }))
+    const link = document.createElement("a")
+    link.href = url
+    link.download = pdfFileName(title).replace(/\.pdf$/, ".txt")
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
   }
 
   const extractTitleFromContent = (content: string): string | null => {
@@ -494,57 +538,83 @@ export default function ChordTransposer() {
             </Dialog>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Textarea
-              value={original}
-              onChange={(e) => replaceOriginal(e.target.value)}
-              className={cn("min-h-[380px] font-mono")}
-              aria-label="Original chord chart"
-            />
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-muted-foreground">Paste your chart here. Include a line like "Do = C".</div>
-              <div className="flex gap-2">
-                <Button variant="outline" asChild>
-                  <label className="cursor-pointer">
-                    Import MIDI
-                    <input type="file" accept=".mid,.midi,audio/midi" className="sr-only" onChange={handleImportMidi} />
-                  </label>
-                </Button>
-                <Button variant="secondary" onClick={() => replaceOriginal("")}>
-                  Clear
-                </Button>
-              </div>
+            <ChartEditor value={original} onChange={replaceOriginal} ariaLabel="Original chord chart" />
+            {problems.length > 0 ? (
+              <ul className="space-y-0.5 text-sm" aria-label="Problems in the chart">
+                {problems.slice(0, 3).map((p, i) => (
+                  <li key={i} className={p.severity === "error" ? "text-destructive" : "text-amber-600 dark:text-amber-400"}>
+                    Line {p.line}: {p.message}
+                  </li>
+                ))}
+                {problems.length > 3 && <li className="text-muted-foreground">…and {problems.length - 3} more, underlined above.</li>}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">Saved in this browser as you type. Include a line like &quot;Do = C&quot;.</p>
+            )}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="outline" asChild>
+                <label className="cursor-pointer">
+                  Open .txt
+                  <input type="file" accept=".txt,text/plain" className="sr-only" onChange={handleOpenTxt} />
+                </label>
+              </Button>
+              <Button variant="outline" onClick={handleSaveTxt} disabled={!original.trim()}>
+                Save .txt
+              </Button>
+              <Button variant="outline" asChild>
+                <label className="cursor-pointer">
+                  Import MIDI
+                  <input type="file" accept=".mid,.midi,audio/midi" className="sr-only" onChange={handleImportMidi} />
+                </label>
+              </Button>
+              <Button variant="secondary" onClick={() => replaceOriginal("")}>
+                Clear
+              </Button>
             </div>
             {importError && <p className="text-sm text-destructive">{importError}</p>}
+            {openError && <p className="text-sm text-destructive">{openError}</p>}
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-foreground h-7 flex items-center">Transposed / Converted</CardTitle>
+          <Tabs defaultValue="preview" className="gap-0">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-foreground h-7 flex items-center">{transposed ? "Transposed / Converted" : "Preview"}</CardTitle>
+            <TabsList>
+              <TabsTrigger value="preview">Preview</TabsTrigger>
+              <TabsTrigger value="text">Text</TabsTrigger>
+            </TabsList>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <Textarea
-              value={transposed}
-              readOnly
-              className={cn("min-h-[380px] font-mono")}
-              aria-label="Transposed chord chart"
-            />
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-muted-foreground">Result appears here after transposing or converting.</div>
-              <div className="flex gap-2">
-                <Button variant="secondary" onClick={() => setTransposed("")}>
-                  Clear
+          <CardContent className="space-y-3 pt-3">
+            <TabsContent value="preview" className="space-y-3">
+              <ChartPreview content={transposed || original} />
+              <p className="text-sm text-muted-foreground">
+                {transposed ? "The transposed chart, as Export PDF prints it." : "Your chart as Export PDF prints it. Transpose to see it in another key."}
+              </p>
+            </TabsContent>
+            <TabsContent value="text" className="space-y-3">
+            {/* Shows the same chart as the Preview tab: the result, or your chart until you transpose */}
+            <ChartEditor value={transposed || original} readOnly ariaLabel="Transposed chord chart" />
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm text-muted-foreground">
+                {transposed ? "The transposed chart, as Export PDF prints it." : "Your chart as Export PDF prints it. Transpose to see it in another key."}
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <Button variant="secondary" onClick={() => setTransposed("")} disabled={!transposed} title="Go back to your chart as written">
+                  Clear result
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => navigator.clipboard.writeText(transposed || "")}
-                  disabled={!transposed}
+                  onClick={() => navigator.clipboard.writeText(transposed || original)}
+                  disabled={!(transposed || original)}
                 >
                   Copy
                 </Button>
               </div>
             </div>
+            </TabsContent>
           </CardContent>
+          </Tabs>
         </Card>
       </div>
 

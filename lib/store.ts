@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { createJSONStorage, persist } from 'zustand/middleware'
 
 interface AppState {
   original: string
@@ -19,7 +20,9 @@ interface AppState {
   setTimeSignature: (timeSignature: "4/4" | "3/4") => void
 }
 
-export const useStore = create<AppState>((set) => ({
+// The chart is saved in the browser, so a refresh doesn't lose it. Pages call useStore.persist.rehydrate()
+// after they mount: reading it during the first render would differ from the server's HTML.
+export const useStore = create<AppState>()(persist((set) => ({
   original: `[Song Number]. [Song Title] ([Source/Book Reference])
 Do = C
 Time Signature = 4/4
@@ -51,4 +54,9 @@ Chorus :
   setOrientation: (orientation) => set({ orientation }),
   setNumbersStyle: (numbersStyle) => set({ numbersStyle }),
   setTimeSignature: (timeSignature) => set({ timeSignature }),
+}), {
+  name: 'chord-chart',
+  storage: createJSONStorage(() => localStorage),
+  partialize: (state) => ({ original: state.original, orientation: state.orientation, numbersStyle: state.numbersStyle }),
+  skipHydration: true,
 }))

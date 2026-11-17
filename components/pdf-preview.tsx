@@ -1,16 +1,16 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { createChartPdf, pdfBlob, PdfFontFamily } from "@/lib/pdf"
+import { createPdf, pdfBlob, PdfFontFamily, PdfStyle } from "@/lib/pdf"
 
-export default function PdfPreview({ content, fontSize, fontFamily, orientation }: { content: string, fontSize: number, fontFamily: PdfFontFamily, orientation: "portrait" | "landscape" }) {
+export default function PdfPreview({ content, style, fontSize, fontFamily, orientation }: { content: string, style: PdfStyle, fontSize: number, fontFamily: PdfFontFamily, orientation: "portrait" | "landscape" }) {
   const [pdfUrl, setPdfUrl] = useState("")
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     // Ignore results from an older render that finishes after a newer one has started
     let cancelled = false
-    createChartPdf(content, { orientation, fontSize, fontFamily })
+    createPdf(content, { style, orientation, fontSize, fontFamily })
       .then((bytes) => {
         if (cancelled) return
         setPdfUrl(URL.createObjectURL(pdfBlob(bytes)))
@@ -23,7 +23,7 @@ export default function PdfPreview({ content, fontSize, fontFamily, orientation 
     return () => {
       cancelled = true
     }
-  }, [content, fontSize, fontFamily, orientation])
+  }, [content, style, fontSize, fontFamily, orientation])
 
   // Release the previous preview file once it has been replaced
   useEffect(() => () => {

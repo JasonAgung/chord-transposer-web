@@ -1,0 +1,5 @@
+# pnpm settings. Read by pnpm 10 (Vercel) and newer; package.json's "pnpm" field is no longer read by pnpm 11+.
+overrides:
+  # A CodeMirror dependency. Its newest release was too fresh for pnpm's minimum release age policy;
+  # drop this once a newer version is a few days old.
+  style-mod: 4.1.4

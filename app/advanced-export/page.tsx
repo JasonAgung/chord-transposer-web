@@ -9,7 +9,7 @@ import PdfPreview from "@/components/pdf-preview"
 import Link from "next/link"
 import { useStore } from "@/lib/store"
 import { ModeToggle } from "@/components/theme-toggle"
-import { createChartPdf, downloadPdf, PdfFontFamily } from "@/lib/pdf"
+import { createPdf, downloadPdf, PdfFontFamily, PdfStyle } from "@/lib/pdf"
 
 const MIN_FONT_SIZE = 6
 const MAX_FONT_SIZE = 24
@@ -23,15 +23,22 @@ export default function AdvancedExport() {
     title,
   } = useStore()
   const [fontSize, setFontSize] = useState(10)
+  const [style, setStyle] = useState<PdfStyle>("grid")
   const [fontFamily, setFontFamily] = useState<PdfFontFamily>("Helvetica")
   const [exportError, setExportError] = useState<string | null>(null)
 
   const content = transposed || original
 
+  // Load the chart saved in this browser, for when this page is opened directly (see lib/store.ts).
+  // This page's other code doesn't write to the store before it.
+  useEffect(() => {
+    useStore.persist.rehydrate()
+  }, [])
+
   const handleExportPDF = async () => {
     setExportError(null)
     try {
-      downloadPdf(await createChartPdf(content, { orientation, fontSize, fontFamily }), title)
+      downloadPdf(await createPdf(content, { style, orientation, fontSize, fontFamily }), title)
     } catch (err) {
       console.error(err)
       setExportError("Could not create the PDF. Please check the chart for unusual characters and try again.")
@@ -60,6 +67,7 @@ export default function AdvancedExport() {
               <div className="h-[600px] w-full">
                 <PdfPreview
                   content={content}
+                  style={style}
                   fontSize={fontSize}
                   fontFamily={fontFamily}
                   orientation={orientation}
@@ -75,6 +83,23 @@ export default function AdvancedExport() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-col gap-2">
+                <Label>Style</Label>
+                <Select value={style} onValueChange={(value) => setStyle(value as PdfStyle)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="grid">Grid</SelectItem>
+                    <SelectItem value="classic">Classic</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {style === "grid"
+                    ? "Bars as boxes, chords at their beats. Lines up on its own; no Smart Format needed."
+                    : "The chart text as written, in two columns. Fits long songs on fewer pages."}
+                </p>
+              </div>
+              <div className="flex flex-col gap-2">
                 <Label>Font Size</Label>
                 <div className="flex items-center gap-2">
                   <Button onClick={() => setFontSize(Math.max(MIN_FONT_SIZE, fontSize - 1))} disabled={fontSize <= MIN_FONT_SIZE}>-</Button>
@@ -84,7 +109,7 @@ export default function AdvancedExport() {
               </div>
               <div className="flex flex-col gap-2">
                 <Label>Font Family</Label>
-                <Select value={fontFamily} onValueChange={(value) => setFontFamily(value as PdfFontFamily)}>
+                <Select value={fontFamily} onValueChange={(value) => setFontFamily(value as PdfFontFamily)} disabled={style === "grid"}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -93,7 +118,9 @@ export default function AdvancedExport() {
                     <SelectItem value="Courier">Courier</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">Use Courier to keep Smart Format&apos;s bars lined up.</p>
+                <p className="text-xs text-muted-foreground">
+                  {style === "grid" ? "Classic style only." : "Use Courier to keep Smart Format's bars lined up."}
+                </p>
               </div>
               <div className="flex flex-col gap-2">
                 <Label>Orientation</Label>
