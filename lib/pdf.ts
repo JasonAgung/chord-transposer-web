@@ -310,8 +310,11 @@ function drawRow(page: PDFPage, row: Row, x: number, y: number) {
   }
 }
 
-export async function createChartPdf(content: string, options: PdfOptions): Promise<Uint8Array> {
+export async function createChartPdf(text: string, options: PdfOptions): Promise<Uint8Array> {
   const { orientation, fontSize = 10, fontFamily = "Helvetica", loadFont = fetchFont } = options
+  // In Courier every letter is as wide as the next, so lining up the bars with spaces works; do it here,
+  // so the PDF is tidy without changing the chart as written
+  const content = fontFamily === "Courier" ? formatter.formatChart(text) : text
   const pdfDoc = await PDFDocument.create()
   const fonts = await embedFonts(pdfDoc, content, fontFamily, loadFont)
 

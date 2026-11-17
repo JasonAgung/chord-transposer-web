@@ -143,7 +143,7 @@ export default function AdvancedExport() {
                     Courier
                   </ToggleGroupItem>
                 </ToggleGroup>
-                <p className="text-sm text-muted-foreground">Courier keeps the bars of a tidied chart lined up.</p>
+                <p className="text-sm text-muted-foreground">Courier lines up the bars under each other.</p>
               </div>
             )}
 

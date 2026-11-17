@@ -5,7 +5,6 @@ import dynamic from "next/dynamic"
 import Link from "next/link"
 import { ChevronDown, Minus, Plus } from "lucide-react"
 import { detectKeyFromContent, getAllKeys, noteIndex } from "@/lib/chords"
-import { SmartFormatter } from "@/lib/formatter"
 import { renderChart, NotationStyle } from "@/lib/render"
 import { createPdf, downloadPdf, pdfFileName } from "@/lib/pdf"
 import { lintChart } from "@/lib/chart-lint"
@@ -37,7 +36,6 @@ const ChartEditor = dynamic(() => import("@/components/chart-editor"), {
 const KEYS = getAllKeys()
 // The usual name of each key, for the semitone buttons: Db rather than C#, F# rather than Gb
 const KEY_NAMES = ["C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
-const formatter = new SmartFormatter()
 
 const NOTATIONS: { value: NotationStyle; label: string; hint: string }[] = [
   { value: "default", label: "Chords", hint: "Chord names: C, Am, F" },
@@ -145,8 +143,6 @@ export default function ChordTransposer() {
     if (!playKey) return
     setTargetKey(KEY_NAMES[(((noteIndex(playKey) + semitones) % 12) + 12) % 12])
   }
-
-  const tidySpacing = () => setOriginal(formatter.formatChart(original))
 
   const [error, setError] = useState<string | null>(null)
 
@@ -349,14 +345,6 @@ export default function ChordTransposer() {
               </DropdownMenu>
               <input ref={openTxtInput} type="file" accept=".txt,text/plain" className="hidden" onChange={handleOpenTxt} />
               <input ref={midiInput} type="file" accept=".mid,.midi,audio/midi" className="hidden" onChange={handleImportMidi} />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="sm" onClick={tidySpacing} disabled={!original.trim()}>
-                    Tidy spacing
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Line up the bars and beats in the text</TooltipContent>
-              </Tooltip>
               <ChartGuide />
             </div>
           </div>
