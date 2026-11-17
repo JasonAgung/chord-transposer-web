@@ -2,7 +2,7 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import { inflateSync } from 'zlib';
 import { PDFArray, PDFDocument, PDFRawStream, PDFRef } from 'pdf-lib';
-import { chordSegments, createGridPdf, parseSong } from './pdf-grid';
+import { chordSegments, createGridPdf, parseSong, tempoNote } from './pdf-grid';
 
 const loadFont = async (file: string) => {
   const bytes = await readFile(path.join(__dirname, '..', 'public', 'fonts', file));
@@ -53,7 +53,7 @@ lyrics here
 Chorus : | F . . | C . . |`);
 
   it('reads the header lines', () => {
-    expect(song).toMatchObject({ title: 'My Song', key: 'Bb', time: '3/4', tempo: '72', structure: 'Verse, Chorus' });
+    expect(song).toMatchObject({ title: 'My Song', key: 'Bb', time: '3/4', tempo: '♩ = 72', structure: 'Verse, Chorus' });
   });
 
   it('reads sections with their notes, bars with their beats, and what follows the last bar', () => {
@@ -80,6 +80,27 @@ Chorus : | F . . | C . . |`);
 
   it('reads Roman and Arabic numbers as bars', () => {
     expect(parseSong('S\n| I . . . | vi7 . . . |').items[0]).toMatchObject({ kind: 'chords', bars: [[{ token: 'I' }], [{ token: 'vi7' }]] });
+  });
+});
+
+describe('tempoNote', () => {
+  it('shows the note the tempo counts', () => {
+    expect(tempoNote('1/4')).toBe('♩');
+    expect(tempoNote('1/8')).toBe('♪');
+    // Dotted notes, common in 6/8
+    expect(tempoNote('3/8')).toBe('♩.');
+    expect(tempoNote('1/4.')).toBe('♩.');
+    expect(tempoNote('3/16')).toBe('♪.');
+    // No symbol in the fonts: written as given
+    expect(tempoNote('1/2')).toBe('1/2');
+    expect(tempoNote(' 1 / 16 ')).toBe('1/16');
+    // No value: quarters
+    expect(tempoNote(undefined)).toBe('♩');
+  });
+
+  it('reads the tempo line with and without a note value', () => {
+    expect(parseSong('S\nTempo (1/8) = 85 BPM').tempo).toBe('♪ = 85');
+    expect(parseSong('S\nTempo = 100').tempo).toBe('♩ = 100');
   });
 });
 
@@ -173,6 +194,13 @@ describe('createGridPdf', () => {
 
   it('draws characters Helvetica lacks with the fallback font, and never fails on unknown ones', async () => {
     await expect(render('Kidung 愛 B♭ 🎸\nDo = B♭\n\n| B♭ . . . | E♭/G . . . |\n歌詞 lyrics 🎸')).resolves.toBeInstanceOf(Uint8Array);
+  });
+
+  it('draws charts in other time signatures', async () => {
+    for (const [time, bar] of [['2/4', '| C . G . |'], ['5/4', '| C . . G . |'], ['7/8', '| C . . . G . . |'], ['12/8', '| C . . . . . G . . . . . |']]) {
+      const pages = await pagesText(await render(`S\nTime Signature = ${time}\n${bar}`));
+      expect(pages[0].map((t) => t.text)).toEqual(expect.arrayContaining(['C', 'G']));
+    }
   });
 
   it('works in landscape and for an empty chart', async () => {

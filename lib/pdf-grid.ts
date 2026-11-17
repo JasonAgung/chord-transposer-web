@@ -24,6 +24,7 @@ export interface Song {
   title: string
   key?: string
   time?: string
+  // "♩ = 72": the beat the tempo counts and its speed
   tempo?: string
   structure?: string
   items: Item[]
@@ -53,6 +54,26 @@ function parseBarLine(line: string): { lead: string; bars: Slot[][]; tail: strin
 // A line of bars: a chord line, empty bars like "| . . . . |", or numbers ("| I . . . | vi . . . |")
 const isBarLine = (t: string) => isChordLine(t) || (t.startsWith("|") && t.indexOf("|", 1) > 0)
 
+// The note a tempo counts, from the "(1/8)" in "Tempo (1/8) = 85 BPM": ♩ for quarters, ♪ for eighths,
+// a dot after it for dotted notes (3/8 or 1/4. is a dotted quarter, common in 6/8). The fonts have no
+// other note symbols, so other values are written as given. No value means quarters.
+export function tempoNote(value?: string): string {
+  const v = (value ?? "").replace(/\s+/g, "")
+  if (!v) return "♩"
+  const m = v.match(/^(\d+)\/(\d+)(\.|dotted)?$/i)
+  if (!m) return v
+  let [num, den] = [Number(m[1]), Number(m[2])]
+  let dotted = !!m[3]
+  // 3/8 = a dotted quarter, 3/16 = a dotted eighth
+  if (num === 3 && !dotted) {
+    num = 1
+    den /= 2
+    dotted = true
+  }
+  const symbol = num === 1 ? { 4: "♩", 8: "♪" }[den] : undefined
+  return symbol ? symbol + (dotted ? "." : "") : v
+}
+
 export function parseSong(content: string): Song {
   const lines = content.split("\n").map((l) => l.replace(/\r$/, ""))
   const song: Song = { title: lines[0]?.trim() || "Untitled", items: [] }
@@ -67,7 +88,9 @@ export function parseSong(content: string): Song {
     if (!t) push({ kind: "gap" })
     else if ((m = t.match(/^Do\s*=\s*(.+)$/i))) song.key = m[1].trim()
     else if ((m = t.match(/^Time\s*Signature\s*=\s*(.+)$/i))) song.time = m[1].trim()
-    else if ((m = t.match(/^Tempo[^=]*=\s*(.+)$/i))) song.tempo = m[1].replace(/\s*BPM\s*$/i, "").trim()
+    else if ((m = t.match(/^Tempo\s*(?:\(([^)]*)\))?[^=]*=\s*(.+)$/i))) {
+      song.tempo = `${tempoNote(m[1])} = ${m[2].replace(/\s*BPM\s*$/i, "").trim()}`
+    }
     else if ((m = t.match(/^Structure\s*=\s*(.+)$/i))) song.structure = m[1].trim()
     else if (isBarLine(t)) {
       const { lead, bars, tail } = parseBarLine(t)
@@ -332,7 +355,7 @@ export async function createGridPdf(content: string, options: GridPdfOptions = {
 
   // ---- Header: title on the left, key and tempo on the right
   const keyText = song.key ? `Do = ${toSymbols(song.key)}` : ""
-  const info = [song.time, song.tempo && `♩ = ${song.tempo}`].filter(Boolean).join("   ")
+  const info = [song.time, song.tempo].filter(Boolean).join("   ")
   const keyWidth = keyText ? measureRich(keyText, fonts.bold, fonts.symBold, 13) : 0
   const infoWidth = info ? measureRich(info, fonts.regular, fonts.sym, 9.5) : 0
   const titleRoom = right - left - Math.max(keyWidth, infoWidth) - 20

@@ -60,6 +60,23 @@ Chorus :
 | F . . | G . . | C . . | C . . |
 | F . . | G . . | C . . | C . . |`
 
+const TEMPLATE_68 = `[Song Number]. [Song Title] ([Source/Book Reference])
+Do = C
+Time Signature = 6/8
+Tempo (1/8) = 150 BPM
+Structure = Intro, Verse, Chorus
+
+Intro :
+| C . . . . . | F . . . . . | G . . . . . | C . . . . . |
+
+Verse :
+| C . . Am . . | F . . G . . | C . . Am . . | F . . G . . |
+| C . . Am . . | F . . G . . | F . . G . . | C . . . . . |
+
+Chorus :
+| F . . . . . | G . . . . . | Em . . Am . . | Dm . . G . . |
+| F . . . . . | G . . . . . | F . . G . . | C . . . . . |`
+
 const TEMPLATE_44 = `[Song Number]. [Song Title] ([Source/Book Reference])
 Do = C
 Time Signature = 4/4
@@ -112,7 +129,7 @@ export default function ChordTransposer() {
     }
     const sig = original.match(/Time\s*Signature\s*=\s*(\d+\/\d+)/i)?.[1]
     if (sig) {
-      const next = sig === "3/4" ? "3/4" : "4/4"
+      const next = sig === "3/4" || sig === "6/8" ? sig : "4/4"
       if (next !== timeSignature) setTimeSignature(next)
     }
   }, [original, currentKey, timeSignature, setCurrentKey, setTargetKey, setTimeSignature])
@@ -173,10 +190,10 @@ export default function ChordTransposer() {
   }
 
   // Replacing the chart asks first, unless the chart is empty or still an untouched template
-  const untouched = [TEMPLATE_34, TEMPLATE_44, useStore.getInitialState().original].includes(original)
+  const untouched = [TEMPLATE_34, TEMPLATE_44, TEMPLATE_68, useStore.getInitialState().original].includes(original)
   const confirmReplace = (what: string) => !original.trim() || untouched || window.confirm(`Replace the current chart with ${what}?`)
 
-  const newChart = (chart: string, what: string, signature?: "3/4" | "4/4") => {
+  const newChart = (chart: string, what: string, signature?: "3/4" | "4/4" | "6/8") => {
     if (!confirmReplace(what)) return
     setError(null)
     setOriginal(chart)
@@ -339,6 +356,7 @@ export default function ChordTransposer() {
                 <DropdownMenuContent align="end">
                   <DropdownMenuItem onSelect={() => newChart(TEMPLATE_44, "the 4/4 template", "4/4")}>4/4 template</DropdownMenuItem>
                   <DropdownMenuItem onSelect={() => newChart(TEMPLATE_34, "the 3/4 template", "3/4")}>3/4 template</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => newChart(TEMPLATE_68, "the 6/8 template", "6/8")}>6/8 template</DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onSelect={() => newChart("", "an empty chart")}>Empty chart</DropdownMenuItem>
                 </DropdownMenuContent>

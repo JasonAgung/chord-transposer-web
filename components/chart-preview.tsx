@@ -170,7 +170,7 @@ function Body({ items, beats }: { items: Item[]; beats: number }) {
 export default function ChartPreview({ content }: { content: string }) {
   const song = useMemo(() => parseSong(content), [content])
   const beats = Math.max(1, parseInt(song.time ?? "", 10) || 4)
-  const info = [song.time, song.tempo && `♩ = ${song.tempo}`].filter(Boolean).join("   ")
+  const info = [song.time, song.tempo].filter(Boolean).join("   ")
 
   // When the bars are wider than the box (a narrow screen, crowded bars), scale them down to fit,
   // like a thumbnail of the page, instead of scrolling sideways

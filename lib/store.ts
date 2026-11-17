@@ -9,7 +9,7 @@ interface AppState {
   title: string
   orientation: "portrait" | "landscape"
   numbersStyle: "default" | "roman" | "arabic"
-  timeSignature: "4/4" | "3/4"
+  timeSignature: "4/4" | "3/4" | "6/8"
   setOriginal: (original: string) => void
   setTransposed: (transposed: string) => void
   setCurrentKey: (currentKey: string) => void
@@ -17,7 +17,7 @@ interface AppState {
   setTitle: (title: string) => void
   setOrientation: (orientation: "portrait" | "landscape") => void
   setNumbersStyle: (numbersStyle: "default" | "roman" | "arabic") => void
-  setTimeSignature: (timeSignature: "4/4" | "3/4") => void
+  setTimeSignature: (timeSignature: "4/4" | "3/4" | "6/8") => void
 }
 
 // The chart is saved in the browser, so a refresh doesn't lose it. Pages call useStore.persist.rehydrate()
