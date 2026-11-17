@@ -171,6 +171,22 @@ describe('midiToChart', () => {
     expect(midiToChart(midiFile([[0, 4, [60, 61, 62]]]), { title: 'T', key: 'C' })).toContain('| C(?) . . . |');
   });
 
+  it('keeps short chord hits on their beats instead of writing N.C. over them', () => {
+    const C = [48, 52, 55];
+    const G = [43, 47, 50];
+    const Am = [45, 48, 52];
+    const hits = midiFile([[0, 0.25, C], [2, 0.25, G], [4, 4, Am]]);
+    expect(midiToChart(hits, { title: 'T', key: 'C' })).toContain('| C . G . | Am . . . |');
+  });
+
+  it('drops a passing chord that shares a beat with a longer one', () => {
+    const C = [48, 52, 55];
+    const F = [41, 45, 48];
+    const G = [43, 47, 50];
+    const passing = midiFile([[0, 4, C], [4, 0.25, F], [4.25, 3.75, G]]);
+    expect(midiToChart(passing, { title: 'T', key: 'C' })).toContain('| C . . . | G . . . |');
+  });
+
   it('explains an export without notes', () => {
     expect(() => midiToChart(midiFile([], [TEMPO_101]), { title: 'T' })).toThrow(/no notes/);
   });

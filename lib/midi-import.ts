@@ -259,18 +259,24 @@ export function midiToChart(bytes: Uint8Array, options: ChartOptions): string {
     (song.keySharps ? keyFromSignature(song.keySharps) : detectKey(groups.map((g) => ({ pitches: g.pitches, duration: g.end - g.start }))))
 
   // Place each chord on a beat; a later chord on the same beat wins
-  const slots = new Map<number, { name: string; up: boolean }>()
+  const slots = new Map<number, { name: string; up: boolean; length: number }>()
   const toSlot = (tick: number) => Math.floor(tick / beat + 1 - PUSH)
   groups.forEach((group, i) => {
     const name = nameChord(group.pitches, key) ?? `${spellNote(Math.min(...group.pitches) % 12, key)}(?)`
     const offBeat = (group.start / beat) % 1
     const slot = toSlot(group.start)
-    if (slots.has(slot) && !slots.has(slot - 1) && i > 0) slots.set(slot - 1, slots.get(slot)!)
-    slots.set(slot, { name, up: offBeat >= PUSH && offBeat < UP_END })
-    // Silence before the next chord
+    const length = group.end - group.start
+    // Two chords on one beat: keep the one that sounds longer, so a passing chord a sixteenth long is dropped
+    const taken = slots.get(slot)
+    if (!taken || taken.name === "N.C." || length >= taken.length) {
+      slots.set(slot, { name, up: offBeat >= PUSH && offBeat < UP_END, length })
+    }
+    // Silence before the next chord; a chord shorter than a beat still keeps its own beat
     const next = groups[i + 1]
     const endSlot = toSlot(group.end)
-    if (next && next.start - group.end >= beat && endSlot < toSlot(next.start)) slots.set(endSlot, { name: "N.C.", up: false })
+    if (next && next.start - group.end >= beat && endSlot > slot && endSlot < toSlot(next.start)) {
+      slots.set(endSlot, { name: "N.C.", up: false, length: 0 })
+    }
   })
 
   const ordered = [...slots.keys()].sort((a, b) => a - b)

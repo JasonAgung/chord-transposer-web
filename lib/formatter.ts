@@ -1,137 +1,81 @@
 // Smart formatter to align bars and standardize spacing similar to the Python version.
 
-import { isChordLine, TOKEN_RE } from "./chords"
+import { isChordLine, parseChord, TOKEN_RE } from "./chords"
 
 // Words of a bar; a note in parentheses stays one word even with spaces: "F(up high)"
 const tokensOf = (bar: string): string[] => bar.match(TOKEN_RE) ?? []
+
+// What can fill a bar besides chords: beat dots, slashes, repeat signs, "N.C."
+const BEAT_RE = /^(?:[.\/%~\-–—]+|N\.?C\.?)$/i
+
+interface BarLine {
+  // Text before the first bar line, e.g. "Intro :"
+  lead: string
+  bars: string[][]
+  // Text after the last bar line, e.g. "x2"
+  tail: string
+}
+
+function parseBarLine(line: string): BarLine | null {
+  const first = line.indexOf("|")
+  if (first < 0) return null
+  const chunks = line.slice(first + 1).split("|")
+  let tail = chunks.pop()!.trim()
+  const bars = chunks.map(tokensOf)
+  // A line missing its closing bar line: the text after the last "|" is its last bar
+  const tailTokens = tokensOf(tail)
+  if (tailTokens.length && tailTokens.every((t) => parseChord(t) || BEAT_RE.test(t))) {
+    bars.push(tailTokens)
+    tail = ""
+  }
+  return { lead: line.slice(0, first).trim(), bars, tail }
+}
 
 export class SmartFormatter {
   isChordLine(line: string): boolean {
     return isChordLine(line)
   }
 
-  private formatBarContent(content: string): string {
-    return tokensOf(content).join(" ")
-  }
-
-  formatChordLine(line: string): string {
-    if (!line.trim()) return line
-    // Split keeping bars
-    const parts = line.split(/(\|)/)
-    const formatted: string[] = []
-    let current: string[] = []
-
-    for (const part of parts) {
-      if (part === "|") {
-        if (current.length) {
-          formatted.push(this.formatBarContent(current.join("")))
-          current = []
-        }
-        formatted.push("|")
-      } else {
-        current.push(part)
-      }
-    }
-    if (current.length) {
-      formatted.push(this.formatBarContent(current.join("")))
-    }
-
-    // Cleanup: ensure single space padding inside bars with separators: | ... | ... |
-    const joined = formatted.join("")
-    const chunks = joined.split("|")
-    const cleaned: string[] = []
-    for (let i = 0; i < chunks.length; i++) {
-      const piece = chunks[i].trim()
-      if ((i === 0 || i === chunks.length - 1) && piece === "") continue
-      cleaned.push(piece)
-    }
-    if (line.trim().startsWith("|")) {
-      if (line.trim().endsWith("|")) return "|" + cleaned.join(" | ") + "|"
-      return "|" + cleaned.join(" | ")
-    }
-    return cleaned.join(" | ")
-  }
-
+  // Lines up the bars of lines next to each other, and each beat inside the bars:
+  // every bar and every beat gets the width of its widest entry
   alignBarsInSection(lines: string[]): string[] {
-    if (!lines.length) return lines
-    // Parse each chord line into bars (between |)
-    const parsed: string[][] = lines.map((line) => {
-      const trimmed = line.trim()
-      if (!(trimmed.startsWith("|") && trimmed.includes("|"))) return [line]
-      const parts = trimmed.split("|").slice(1, -1) // remove leading/trailing empty
-      return parts.map((p) => p.trim())
-    })
+    const parsed = lines.map(parseBarLine)
+    const valid = parsed.filter((p): p is BarLine => p !== null)
+    if (!valid.length) return lines
 
-    const maxBars = Math.max(...parsed.map((b) => b.length))
-    // Compute max token widths per bar position
-    const barWidths: number[] = []
-    const perTokenWidths: number[][] = []
-
+    const leadWidth = Math.max(...valid.map((p) => p.lead.length))
+    const maxBars = Math.max(...valid.map((p) => p.bars.length))
+    const tokenWidths: number[][] = []
     for (let barIdx = 0; barIdx < maxBars; barIdx++) {
-      // Find max number of tokens in this bar across lines
-      let maxTokens = 0
-      parsed.forEach((bars) => {
-        if (barIdx < bars.length) {
-          maxTokens = Math.max(maxTokens, tokensOf(bars[barIdx]).length)
-        }
-      })
-
-      const tokenWidths: number[] = []
-      for (let tokenIdx = 0; tokenIdx < maxTokens; tokenIdx++) {
-        let w = 0
-        parsed.forEach((bars) => {
-          if (barIdx < bars.length) {
-            const tokens = tokensOf(bars[barIdx])
-            if (tokenIdx < tokens.length) w = Math.max(w, tokens[tokenIdx].length)
-          }
-        })
-        tokenWidths.push(w)
+      const widths: number[] = []
+      for (const { bars } of valid) {
+        ;(bars[barIdx] ?? []).forEach((token, t) => (widths[t] = Math.max(widths[t] ?? 0, token.length)))
       }
-
-      perTokenWidths[barIdx] = tokenWidths
-      const barWidth = tokenWidths.reduce((sum, v) => sum + v, 0) + Math.max(0, tokenWidths.length - 1)
-      barWidths[barIdx] = barWidth
+      tokenWidths.push(widths)
     }
+    const barWidths = tokenWidths.map((widths) => widths.reduce((sum, w) => sum + w, 0) + Math.max(0, widths.length - 1))
 
-    // Rebuild aligned lines
-    const aligned: string[] = lines.map((_, i) => {
-      const bars = parsed[i]
-      if (!bars || bars.length === 1) return lines[i] // pass-through
-      const parts: string[] = ["|"]
-      for (let barIdx = 0; barIdx < bars.length; barIdx++) {
-        const tokens = tokensOf(bars[barIdx])
-        const widths = perTokenWidths[barIdx] || []
-        const alignedTokens: string[] = []
-        for (let t = 0; t < Math.max(tokens.length, widths.length); t++) {
-          const tok = tokens[t] ?? ""
-          const pad = widths[t] ?? 0
-          alignedTokens.push(tok.padEnd(pad, " "))
-        }
-        const content = alignedTokens.join(" ").padEnd(barWidths[barIdx] ?? alignedTokens.join(" ").length, " ")
-        parts.push(" " + content + " |")
-      }
-      return parts.join("")
+    return parsed.map((p, i) => {
+      if (!p) return lines[i]
+      const lead = leadWidth ? p.lead.padEnd(leadWidth) + " " : ""
+      const bars = p.bars.map((tokens, barIdx) => {
+        const content = tokens.map((token, t) => token.padEnd(tokenWidths[barIdx][t])).join(" ")
+        return ` ${content.padEnd(barWidths[barIdx])} |`
+      })
+      return `${lead}|${bars.join("")}${p.tail ? " " + p.tail : ""}`
     })
-
-    return aligned
   }
 
   formatChart(content: string): string {
-    const lines = content.split("\n")
-    const formattedFirst = lines.map((line) => (this.isChordLine(line) ? this.formatChordLine(line) : line))
-
-    // Group chord-line sections for alignment
+    // Group runs of chord lines; each run is aligned on its own
     const result: string[] = []
     let section: string[] = []
     const flush = () => {
-      if (section.length) {
-        const aligned = this.alignBarsInSection(section)
-        result.push(...aligned)
-        section = []
-      }
+      if (section.length) result.push(...this.alignBarsInSection(section))
+      section = []
     }
 
-    for (const line of formattedFirst) {
+    for (const line of content.split("\n")) {
       if (this.isChordLine(line)) {
         section.push(line)
       } else {

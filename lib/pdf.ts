@@ -3,6 +3,9 @@
 import { PageSizes, PDFDocument, PDFFont, PDFPage, RGB, rgb, StandardFonts } from "pdf-lib"
 import fontkit from "@pdf-lib/fontkit"
 import { isChordLine } from "./chords"
+import { SmartFormatter } from "./formatter"
+import { fetchFont } from "./fonts"
+import { createGridPdf } from "./pdf-grid"
 
 export type PdfFontFamily = "Helvetica" | "Courier"
 
@@ -22,6 +25,10 @@ const SECTION_RE = /^([\w\s-]+:)/
 const ANNOTATION_RE = /([\w#♭♯/]+)\(([^)]+)\)/g
 // Chord lines shrink to fit the column, but never below this share of the chosen font size
 const MIN_CHORD_SCALE = 0.75
+// A section is moved whole to the next column only when less than this share of the column is left;
+// otherwise it starts here and continues in the next column, so no column is left mostly empty
+const MOVE_SECTION_BELOW = 0.5
+const SUBSCRIPT_SCALE = 0.7
 const BLACK = rgb(0, 0, 0)
 const GREY = rgb(0.5, 0.5, 0.5)
 
@@ -30,12 +37,15 @@ const GREY = rgb(0.5, 0.5, 0.5)
 interface Fonts {
   regular: PDFFont
   bold: PDFFont
+  // Every glyph has the same width, so Smart Format's padding lines bars up
+  mono: boolean
 }
 
 interface Row {
   text: string
   font: PDFFont
   size: number
+  mono: boolean
   color: RGB
   gapBefore: number
   advance: number
@@ -43,12 +53,6 @@ interface Row {
 
 // A run of rows kept in one column when possible; a spacer is a blank line
 type Block = { spacer: true } | { spacer: false; rows: Row[] }
-
-async function fetchFont(file: string): Promise<ArrayBuffer> {
-  const res = await fetch(`/fonts/${file}`)
-  if (!res.ok) throw new Error(`Could not load font ${file}`)
-  return res.arrayBuffer()
-}
 
 async function embedFonts(
   pdfDoc: PDFDocument,
@@ -65,6 +69,7 @@ async function embedFonts(
     return {
       regular,
       bold: await pdfDoc.embedFont(mono ? StandardFonts.CourierBold : StandardFonts.HelveticaBold),
+      mono,
     }
   }
 
@@ -73,6 +78,7 @@ async function embedFonts(
   return {
     regular: await embed(mono ? "DejaVuSansMono.ttf" : "DejaVuSans.ttf"),
     bold: await embed(mono ? "DejaVuSansMono-Bold.ttf" : "DejaVuSans-Bold.ttf"),
+    mono,
   }
 }
 
@@ -87,6 +93,62 @@ function sanitize(text: string, font: PDFFont, cache: Map<PDFFont, Set<number>>)
   return [...text.replace(/\t/g, "    ")].map((c) => (charset.has(c.codePointAt(0)!) ? c : "?")).join("")
 }
 
+// pdf-lib measures text with kerning but draws it without, so a measured width runs short and the next
+// piece of text lands on top of the previous one. Measure glyph by glyph instead, as it is drawn.
+const glyphWidths = new WeakMap<PDFFont, Map<string, number>>()
+
+function textWidth(text: string, font: PDFFont, size: number): number {
+  let widths = glyphWidths.get(font)
+  if (!widths) {
+    widths = new Map()
+    glyphWidths.set(font, widths)
+  }
+  let total = 0
+  for (const c of text) {
+    let w = widths.get(c)
+    if (w === undefined) {
+      w = font.widthOfTextAtSize(c, 1000)
+      widths.set(c, w)
+    }
+    total += w
+  }
+  return (total * size) / 1000
+}
+
+interface Piece {
+  text: string
+  x: number
+  size: number
+  subscript: boolean
+}
+
+// Lays out a line, turning "Chord(note)" into the chord followed by a small subscript note.
+// In a monospaced font the note keeps the width of "(note)", so Smart Format's bars stay lined up;
+// in other fonts nothing lines up anyway, so the text after the note follows it directly.
+function layoutLine(text: string, font: PDFFont, size: number, mono: boolean): { pieces: Piece[]; width: number } {
+  const pieces: Piece[] = []
+  const subscriptSize = size * SUBSCRIPT_SCALE
+  let x = 0
+  let lastIndex = 0
+  const add = (t: string, s: number, subscript = false) => {
+    if (!t) return
+    pieces.push({ text: t, x, size: s, subscript })
+    x += textWidth(t, font, s)
+  }
+  for (const match of text.matchAll(ANNOTATION_RE)) {
+    add(text.substring(lastIndex, match.index), size)
+    const start = x
+    add(match[1], size)
+    add(match[2], subscriptSize, true)
+    if (mono) x = Math.max(x, start + textWidth(match[0], font, size))
+    lastIndex = match.index! + match[0].length
+  }
+  add(text.substring(lastIndex), size)
+  return { pieces, width: x }
+}
+
+const lineWidth = (text: string, font: PDFFont, size: number, mono: boolean) => layoutLine(text, font, size, mono).width
+
 export function wrapText(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
   const lines: string[] = []
   let current: string | null = null
@@ -96,7 +158,7 @@ export function wrapText(text: string, font: PDFFont, size: number, maxWidth: nu
       continue
     }
     const candidate: string = `${current} ${word}`
-    if (current.trim() !== "" && font.widthOfTextAtSize(candidate, size) > maxWidth) {
+    if (current.trim() !== "" && textWidth(candidate, font, size) > maxWidth) {
       lines.push(current)
       current = word
     } else {
@@ -107,16 +169,16 @@ export function wrapText(text: string, font: PDFFont, size: number, maxWidth: nu
   return lines
 }
 
-// Splits a chord line evenly into lineCount lines between bars, repeating the bar line at each break:
-// "| C | F |" -> "| C |", "| F |"
-function splitBars(text: string, lineCount: number): string[] {
+// Splits a chord line after every barsPerLine bars, repeating the bar line at each break:
+// "| C | F | G |" with 2 -> "| C | F |", "| G |"
+function chunkBars(text: string, barsPerLine: number): string[] {
   const bars = text.split(/(?=\|)/)
   const closing = bars.length > 1 && bars[bars.length - 1].trim() === "|" ? bars.pop()! : ""
-  const perLine = Math.ceil(bars.length / lineCount)
   const lines: string[] = []
-  for (let i = 0; i < bars.length; i += perLine) {
-    const chunk = bars.slice(i, i + perLine).join("")
-    lines.push(i + perLine < bars.length ? chunk + "|" : chunk + closing)
+  for (let i = 0; i < bars.length; i += barsPerLine) {
+    const chunk = bars.slice(i, i + barsPerLine).join("").trimEnd()
+    const end = i + barsPerLine < bars.length ? "|" : closing.trim()
+    lines.push(end ? `${chunk} ${end}` : chunk)
   }
   return lines
 }
@@ -125,34 +187,36 @@ function barCount(text: string): number {
   return text.split(/(?=\|)/).filter((bar) => bar.trim() !== "|").length
 }
 
-// Wraps a chord line into as few evenly split lines as fit the column
-function wrapBars(text: string, font: PDFFont, size: number, maxWidth: number): string[] {
-  const fits = (t: string) => font.widthOfTextAtSize(t, size) <= maxWidth
-  for (let lineCount = 1; lineCount <= barCount(text); lineCount++) {
-    const lines = splitBars(text, lineCount)
-    if (lines.every(fits)) return lines
-  }
-  // A single bar wider than the column falls back to word wrapping
-  return wrapText(text, font, size, maxWidth)
+const formatter = new SmartFormatter()
+
+// Splits each run of chord lines (lines next to each other, as Smart Format groups them) into lines
+// of at most barsPerLine bars. In a monospaced font a split run is lined up again, so the bars of
+// "| C | F |" + "| G | Am |" stay under each other; a run that needs no split is left as written.
+function splitRuns(runs: string[][], barsPerLine: number, mono: boolean): string[][][] {
+  return runs.map((run) => {
+    const parts = run.map((line) => chunkBars(line, barsPerLine))
+    if (!mono || parts.every((p) => p.length === 1)) return parts
+    const aligned = formatter.alignBarsInSection(parts.flat())
+    let i = 0
+    return parts.map((p) => p.map(() => aligned[i++]))
+  })
 }
 
-// One size for every chord line, so bars stay aligned across the whole chart. Picks the fewest
-// line splits that fit when shrunk by at most MIN_CHORD_SCALE: a 4-bar line that is a little too wide
-// is shrunk, one that is far too wide is split 2+2 (and shrunk a little if the halves still don't fit).
-function chordFontSize(lines: string[], font: PDFFont, fontSize: number, colWidth: number, charsets: Map<PDFFont, Set<number>>) {
-  const chordLines = lines.filter((line) => isChordLine(line)).map((line) => sanitize(line, font, charsets))
-  const maxBars = Math.max(1, ...chordLines.map(barCount))
+// One size and one number of bars per line for every chord line, so bars stay aligned across the chart.
+// Uses as few lines as possible, split evenly, shrinking by at most MIN_CHORD_SCALE: a 4-bar line that is
+// a little too wide is shrunk, one that is far too wide is split 2+2 (and shrunk a little if still too wide).
+function chordLayout(runs: string[][], font: PDFFont, fontSize: number, colWidth: number, mono: boolean) {
+  const maxBars = Math.max(1, ...runs.flat().map(barCount))
   for (let lineCount = 1; lineCount <= maxBars; lineCount++) {
-    const widest = Math.max(
-      0,
-      ...chordLines.flatMap((line) => splitBars(line, lineCount)).map((part) => font.widthOfTextAtSize(part, fontSize)),
-    )
+    const barsPerLine = Math.ceil(maxBars / lineCount)
+    if (lineCount > 1 && barsPerLine === Math.ceil(maxBars / (lineCount - 1))) continue
+    const widest = Math.max(0, ...splitRuns(runs, barsPerLine, mono).flat(2).map((part) => lineWidth(part, font, fontSize, mono)))
     const scale = colWidth / widest
-    if (scale >= 1) return fontSize
+    if (scale >= 1) return { barsPerLine, size: fontSize }
     // Slightly under the exact fit, so rounding never pushes a line over the column width
-    if (scale >= MIN_CHORD_SCALE) return fontSize * scale * 0.999
+    if (scale >= MIN_CHORD_SCALE) return { barsPerLine, size: fontSize * scale * 0.999 }
   }
-  return fontSize
+  return { barsPerLine: 1, size: fontSize * MIN_CHORD_SCALE }
 }
 
 function buildBlocks(content: string, fonts: Fonts, fontSize: number, colWidth: number): Block[] {
@@ -166,37 +230,60 @@ function buildBlocks(content: string, fonts: Fonts, fontSize: number, colWidth: 
   }
 
   const lines = content.split("\n").map((line) => line.replace(/\r$/, ""))
-  const chordSize = chordFontSize(lines, fonts.regular, fontSize, colWidth, charsets)
+  const kinds = lines.map((line, i) => {
+    if (line.trim() === "") return "blank"
+    if (i === 0) return "title"
+    if (SECTION_RE.test(line)) return "section"
+    return isChordLine(line) ? "chord" : "text"
+  })
+
+  // Runs of chord lines, split into lines that fit the column
+  const runs: { start: number; lines: string[] }[] = []
+  kinds.forEach((kind, i) => {
+    if (kind !== "chord") return
+    const text = sanitize(lines[i], fonts.regular, charsets)
+    const last = runs[runs.length - 1]
+    if (last && kinds[i - 1] === "chord") last.lines.push(text)
+    else runs.push({ start: i, lines: [text] })
+  })
+  const chord = chordLayout(runs.map((r) => r.lines), fonts.regular, fontSize, colWidth, fonts.mono)
+  const chordParts = new Map<number, string[]>()
+  splitRuns(runs.map((r) => r.lines), chord.barsPerLine, fonts.mono).forEach((run, r) =>
+    run.forEach((parts, j) => chordParts.set(runs[r].start + j, parts)),
+  )
 
   lines.forEach((line, i) => {
-    if (line.trim() === "") {
+    const kind = kinds[i]
+    if (kind === "blank") {
       flush()
       blocks.push({ spacer: true })
       return
     }
 
-    const isTitle = i === 0
-    const isSection = !isTitle && SECTION_RE.test(line)
     // The title and each section header start a new block, so a section is kept together
-    if (isTitle || isSection) flush()
+    if (kind === "title" || kind === "section") flush()
 
-    const isChord = !isTitle && !isSection && isChordLine(line)
-    const font = isTitle || isSection ? fonts.bold : fonts.regular
-    const size = isTitle ? fontSize + 5 : isChord ? chordSize : fontSize
+    const font = kind === "title" || kind === "section" ? fonts.bold : fonts.regular
+    const size = kind === "title" ? fontSize + 5 : kind === "chord" ? chord.size : fontSize
     const color = METADATA_RE.test(line) ? GREY : BLACK
-    const text = sanitize(line, font, charsets)
-    const wrapped = isChord ? wrapBars(text, font, size, colWidth) : wrapText(text, font, size, colWidth)
+    const fits = (t: string) => lineWidth(t, font, size, fonts.mono) <= colWidth
+    const wrapped =
+      kind === "chord"
+        ? // A single bar wider than the column falls back to word wrapping
+          chordParts.get(i)!.flatMap((part) => (fits(part) ? [part] : wrapText(part, font, size, colWidth)))
+        : wrapText(sanitize(line, font, charsets), font, size, colWidth)
     wrapped.forEach((text, j) => {
       current.push({
         text,
         font,
         size,
+        mono: fonts.mono,
         color,
-        gapBefore: isSection && j === 0 ? lineHeight / 2 : 0,
-        advance: isTitle ? fontSize + 14 : lineHeight,
+        gapBefore: kind === "section" && j === 0 ? lineHeight / 2 : 0,
+        advance: kind === "title" ? fontSize + 14 : lineHeight,
       })
     })
-    if (isTitle) flush()
+    if (kind === "title") flush()
   })
   flush()
   return blocks
@@ -211,30 +298,16 @@ function blockFits(rows: Row[], y: number): boolean {
   return true
 }
 
-// Draws text, turning "Chord(note)" into the chord followed by a small subscript note.
-// The note takes up the same width as the original "Chord(note)" text, so aligned bars stay aligned.
-function drawTextWithAnnotations(page: PDFPage, row: Row, x: number, y: number) {
-  const options = { font: row.font, size: row.size, color: row.color }
-  const subscriptSize = row.size * 0.7
-  const subscriptY = y - row.size * 0.3
-  let currentX = x
-  let lastIndex = 0
-
-  const draw = (text: string, size: number, atY: number) => {
-    if (!text) return
-    page.drawText(text, { ...options, size, x: currentX, y: atY })
-    currentX += row.font.widthOfTextAtSize(text, size)
+function drawRow(page: PDFPage, row: Row, x: number, y: number) {
+  for (const piece of layoutLine(row.text, row.font, row.size, row.mono).pieces) {
+    page.drawText(piece.text, {
+      font: row.font,
+      size: piece.size,
+      color: row.color,
+      x: x + piece.x,
+      y: piece.subscript ? y - row.size * 0.3 : y,
+    })
   }
-
-  for (const match of row.text.matchAll(ANNOTATION_RE)) {
-    draw(row.text.substring(lastIndex, match.index), row.size, y)
-    const end = currentX + row.font.widthOfTextAtSize(match[0], row.size)
-    draw(match[1], row.size, y)
-    draw(match[2], subscriptSize, subscriptY)
-    currentX = end
-    lastIndex = match.index! + match[0].length
-  }
-  draw(row.text.substring(lastIndex), row.size, y)
 }
 
 export async function createChartPdf(content: string, options: PdfOptions): Promise<Uint8Array> {
@@ -267,18 +340,34 @@ export async function createChartPdf(content: string, options: PdfOptions): Prom
       if (y !== top) y -= lineHeight
       continue
     }
-    // Move a block that would be split to the next column, unless it is taller than a whole column
-    if (y !== top && !blockFits(block.rows, y) && blockFits(block.rows, top)) nextColumn()
+    // Move a block that would be split to the next column, when it fits there and this column is
+    // already more than half full
+    const columnHeight = top - MARGIN
+    if (
+      y !== top &&
+      !blockFits(block.rows, y) &&
+      blockFits(block.rows, top) &&
+      y - MARGIN < columnHeight * MOVE_SECTION_BELOW
+    )
+      nextColumn()
 
     for (const row of block.rows) {
       if (y - row.gapBefore < MARGIN) nextColumn()
       y -= row.gapBefore
-      drawTextWithAnnotations(page, row, MARGIN + column * (colWidth + COLUMN_GAP), y)
+      drawRow(page, row, MARGIN + column * (colWidth + COLUMN_GAP), y)
       y -= row.advance
     }
   }
 
   return pdfDoc.save()
+}
+
+// "grid" draws each bar as a cell with chords at their beats; "classic" prints the chart text as written
+export type PdfStyle = "grid" | "classic"
+
+export function createPdf(content: string, options: PdfOptions & { style: PdfStyle }): Promise<Uint8Array> {
+  const { style, ...rest } = options
+  return style === "grid" ? createGridPdf(content, rest) : createChartPdf(content, rest)
 }
 
 export function pdfFileName(title: string): string {
