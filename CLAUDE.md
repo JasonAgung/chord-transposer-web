@@ -5,7 +5,7 @@ Next.js 15 + TypeScript web app that transposes chord charts, converts them to R
 ## Commands
 
 - `pnpm dev` — dev server on http://localhost:3000
-- `pnpm test` — Jest (ts-jest), tests live next to the code as `lib/*.test.ts`
+- `pnpm test` — Jest (ts-jest), tests live next to the code as `lib/*.test.ts`; React components can be tested as `components/*.test.tsx` with `renderToStaticMarkup` (jest.config.js maps `@/` and compiles JSX)
 - `npx tsc --noEmit` — type-check. Run it yourself: `next.config.mjs` sets `ignoreBuildErrors`, so `next build` will not catch type errors.
 
 Use **pnpm**, not npm: `node_modules` is pnpm-managed and `pnpm-lock.yaml` is the tracked lockfile (`package-lock.json` is gitignored).
@@ -34,7 +34,7 @@ The app's input conventions, which the parser relies on:
 - `lib/pdf-grid.ts` — the **grid** style (default). Parses the chart into sections, rows and bars (`parseSong`), then draws each bar as a fixed-width cell with every chord placed at its beat, so it lines up in any font and the spacing in the text doesn't matter.
   - 4 bars per row; a line of 8 bars wraps, a 1-bar line is one cell. Sections: `Chorus : Loss, Build Up` shows the note next to the label. `| . . . . |` (no chords) shows rest slashes. A blank line inside a section is a phrase break; the double bar marks the section's end. `x2` after the last bar goes in a right-hand gutter.
   - Chords are typeset by `chordSegments`: ♭/♯ symbols, raised extension, `(up)`-style notes stacked under the extension. Roman/Arabic output is typeset the same way (`57` → 5 with a raised 7).
-  - Crowded chords keep their size and move apart (`placeInBar`); a bar that is too full shrinks all its chords equally. Dots mark empty beats in bars with more than one chord.
+  - Dots mark empty beats in bars with more than one chord, or one chord off beat 1, and are **never dropped**: they say how long a chord lasts. `placeInBar` keeps room for them, they pack closer when a bar is tight, and only then do all the bar's chords shrink equally (down to 35%, rather than overlap). Crowded chords keep their size and move apart when there is room. The preview (`Bar` in chart-preview.tsx) follows the same rule; tests count the dots in every time signature and notation.
   - A section is kept on one page when it fits; the whole chart shrinks (to 78% at most) only when that saves a page.
   - Text is Helvetica; anything Helvetica can't draw (♭ ♯ ♩, non-Latin) comes from DejaVu, which is always embedded.
 - `lib/pdf.ts` — the **classic** style: prints the chart text as written, two columns per page.

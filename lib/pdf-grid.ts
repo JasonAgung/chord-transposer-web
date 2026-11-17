@@ -313,8 +313,12 @@ const TAIL_GUTTER = 26
 const CHORD_SIZE = 13
 // Smallest share of the chosen size the chart may shrink to, to save a page or fit a crowded bar
 const MIN_SCALE = 0.78
-const MIN_BAR_SCALE = 0.7
+// A bar too full even at this size keeps shrinking rather than letting chords overlap; overlapping chords
+// can't be read at all
+const MIN_BAR_SCALE = 0.35
 const CHORD_GAP = 6
+// Room for one dot of an empty beat
+const DOT_SPACE = 6
 
 export interface GridPdfOptions {
   orientation?: "portrait" | "landscape"
@@ -381,23 +385,27 @@ export async function createGridPdf(content: string, options: GridPdfOptions = {
     page.drawLine({ start: { x: left, y: top - 16 }, end: { x: right, y: top - 16 }, thickness: 0.5, color: RULE })
   }
 
-  // Places the chords of one bar at their beats, at full size. When chords are too close (A/C# on beat 3,
-  // B/D# on beat 4) they move apart, using free space in the bar; only when the bar is truly too full
-  // are all its chords made smaller, by the same amount.
-  const placeInBar = (chords: { x: number; segs: Seg[] }[], start: number, end: number, S: number) => {
+  // Places the chords of one bar at their beats, at full size. Room is kept after each chord for the dots of
+  // its empty beats (after[i] dots). When chords are too close (A/C# on beat 3, B/D# on beat 4) they move
+  // apart, using free space in the bar; only when the bar is truly too full are all its chords made
+  // smaller, by the same amount.
+  const placeInBar = (chords: { x: number; segs: Seg[] }[], after: number[], start: number, end: number, S: number) => {
     let size = S
     let w = chords.map((c) => chordWidth(c.segs, size, fonts))
-    const gaps = CHORD_GAP * Math.max(0, chords.length - 1)
-    const needed = w.reduce((sum, x) => sum + x, 0) + gaps
+    const reserve = after.map((n, i) => (i < chords.length - 1 || n > 0 ? CHORD_GAP + n * DOT_SPACE : 0))
+    const fixed = reserve.reduce((sum, x) => sum + x, 0)
+    const needed = w.reduce((sum, x) => sum + x, 0) + fixed
     if (needed > end - start) {
-      size = Math.max(S * MIN_BAR_SCALE, (S * (end - start - gaps)) / (needed - gaps))
+      size = Math.max(S * MIN_BAR_SCALE, (S * (end - start - fixed)) / (needed - fixed))
       w = chords.map((c) => chordWidth(c.segs, size, fonts))
     }
     const xs = chords.map((c) => c.x)
-    // Push right where a chord runs into the next one, then back left where the last ones pass the bar line
-    for (let i = 1; i < xs.length; i++) xs[i] = Math.max(xs[i], xs[i - 1] + w[i - 1] + CHORD_GAP)
-    if (xs.length) xs[xs.length - 1] = Math.min(xs[xs.length - 1], end - w[w.length - 1])
-    for (let i = xs.length - 2; i >= 0; i--) xs[i] = Math.min(xs[i], xs[i + 1] - w[i] - CHORD_GAP)
+    // Push right where a chord (and its dots) runs into the next one, then back left where the last ones
+    // pass the bar line
+    for (let i = 1; i < xs.length; i++) xs[i] = Math.max(xs[i], xs[i - 1] + w[i - 1] + reserve[i - 1])
+    const last = xs.length - 1
+    if (last >= 0) xs[last] = Math.min(xs[last], end - w[last] - (after[last] ? reserve[last] : 0))
+    for (let i = last - 1; i >= 0; i--) xs[i] = Math.min(xs[i], xs[i + 1] - w[i] - reserve[i])
     if (xs.length) xs[0] = Math.max(xs[0], start)
     return chords.map((c, i) => ({ x: xs[i], segs: c.segs, size, end: xs[i] + w[i] }))
   }
@@ -415,10 +423,18 @@ export async function createGridPdf(content: string, options: GridPdfOptions = {
       const cx = left + b * cellW
       barLine(cx)
       const doubleBarAfter = b === bars.length - 1 && final
+      // The beat each chord falls on, and how many empty beats follow it before the next chord
+      const beatOf = slots.map((slot) => Math.min(beatsPerBar - 1, Math.round(slot.pos * beatsPerBar)))
+      // Dots show the beats when a bar has more than one chord, or one chord that isn't on beat 1
+      const showDots = slots.length > 1 || (slots.length === 1 && beatOf[0] > 0)
+      const after = beatOf.map((beat, i) => (showDots ? (beatOf[i + 1] ?? beatsPerBar) - beat - 1 : 0))
+      const leading = showDots ? beatOf[0] : 0
+      const barEnd = cx + cellW - 5 - (doubleBarAfter ? 5 : 0)
       const chords = placeInBar(
         slots.map((slot) => ({ x: beatX(cx, slot.pos), segs: chordSegments(slot.token) })),
-        cx + 7,
-        cx + cellW - 5 - (doubleBarAfter ? 5 : 0),
+        after,
+        cx + 7 + leading * DOT_SPACE,
+        barEnd,
         S,
       )
       // An empty bar (drums only, a break) shows its beats as slashes
@@ -428,22 +444,22 @@ export async function createGridPdf(content: string, options: GridPdfOptions = {
           page.drawLine({ start: { x: sx, y: baseline - 1 }, end: { x: sx + 5, y: baseline + S * 0.75 }, thickness: 1.3, color: BEAT })
         }
       }
-      // Dots on the beats without a chord show where a chord falls when a bar has more than one.
-      // A dot too close to the chord before it moves just past it; with no room left it is left out.
-      if (slots.length > 1) {
-        const gap = 6
-        let lastDot = -Infinity
-        for (let beat = 1; beat < beatsPerBar; beat++) {
-          if (slots.some((s) => Math.abs(s.pos - beat / beatsPerBar) < 0.01)) continue
-          let dx = beatX(cx, beat / beatsPerBar) + 2
-          const covering = chords.find((c) => dx >= c.x - gap && dx <= c.end + gap)
-          if (covering) dx = covering.end + gap
-          const next = chords.find((c) => c.x > dx)
-          const limit = next ? next.x - gap : cx + cellW - gap
-          if (dx > limit || dx < lastDot + gap * 1.5) continue
-          page.drawCircle({ x: dx, y: baseline + S * 0.3, size: 1.6, color: BEAT })
-          lastDot = dx
+      // Dots on the empty beats show where each chord falls when a bar has more than one. Every empty beat
+      // gets its dot: at its beat when there's room, otherwise packed closer together after the chord.
+      const drawDots = (firstBeat: number, count: number, from: number, to: number) => {
+        if (count <= 0) return
+        const atBeats = Array.from({ length: count }, (_, j) => beatX(cx, (firstBeat + j) / beatsPerBar) + 2)
+        const fits = atBeats[0] >= from && atBeats[count - 1] <= to
+        const spacing = Math.min(DOT_SPACE, (to - from) / count)
+        for (let j = 0; j < count; j++) {
+          const x = fits ? atBeats[j] : from + spacing * (j + 0.5)
+          page.drawCircle({ x, y: baseline + S * 0.3, size: 1.6, color: BEAT })
         }
+      }
+      if (showDots) {
+        const gap = 5
+        drawDots(0, leading, cx + 6, chords[0].x - gap)
+        chords.forEach((c, i) => drawDots(beatOf[i] + 1, after[i], c.end + gap, (chords[i + 1]?.x ?? barEnd) - gap / 2))
       }
       for (const c of chords) drawChord(page, c.segs, c.x, baseline, c.size, fonts)
     })
