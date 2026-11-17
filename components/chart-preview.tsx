@@ -1,7 +1,8 @@
 "use client"
 
 // A live preview of the chart in the grid style of the PDF (lib/pdf-grid.ts), drawn with HTML so it
-// updates as you type and works on phones, where the browser's PDF viewer often doesn't.
+// updates as you type and works on phones, where the browser's PDF viewer often doesn't. It is drawn as
+// the printed page looks: white paper and dark ink in either theme (the .paper class in globals.css).
 
 import { Fragment, useLayoutEffect, useMemo, useRef } from "react"
 import { chordSegments, Item, parseSong, Seg } from "@/lib/pdf-grid"
@@ -31,12 +32,12 @@ function Chord({ token }: { token: string }) {
           <span key={i} className="inline-flex flex-col align-top text-[0.62em] font-normal leading-[1.05]">
             <span>{s.text}</span>
             {notes.map((n, j) => (
-              <span key={j} className="italic text-muted-foreground">{n.text}</span>
+              <span key={j} className="italic text-[var(--ink-muted)]">{n.text}</span>
             ))}
           </span>
         )
       case "note":
-        return hasExt ? null : <sub key={i} className="text-[0.56em] font-normal italic text-muted-foreground">{s.text}</sub>
+        return hasExt ? null : <sub key={i} className="text-[0.56em] font-normal italic text-[var(--ink-muted)]">{s.text}</sub>
       default:
         return <span key={i} className="text-[0.86em]">{s.text}</span>
     }
@@ -60,9 +61,9 @@ function Row({ bars, beats, final, tail }: { bars: { pos: number; token: string 
             key={b}
             data-crowded={crowded || undefined}
             className={cn(
-              "grid min-h-9 items-center border-l-[1.5px] border-l-foreground/80 py-1 pl-2",
+              "grid min-h-9 items-center border-l-[1.5px] border-l-[var(--ink)] py-1 pl-2",
               crowded ? "pr-1 text-[13px]" : "pr-3 text-[15px]",
-              last && (final ? "border-r-4 border-r-foreground [border-right-style:double]" : "border-r-[1.5px] border-r-foreground/80"),
+              last && (final ? "border-r-4 border-r-[var(--ink)] [border-right-style:double]" : "border-r-[1.5px] border-r-[var(--ink)]"),
             )}
             style={{ gridTemplateColumns: crowded ? `repeat(${cells.filter(Boolean).length}, auto)` : `repeat(${beats}, minmax(0, 1fr))` }}
           >
@@ -73,9 +74,9 @@ function Row({ bars, beats, final, tail }: { bars: { pos: number; token: string 
                   {token ? (
                     <Chord token={token} />
                   ) : slots.length === 0 ? (
-                    <span className="text-muted-foreground">/</span>
+                    <span className="text-[var(--ink-muted)]">/</span>
                   ) : slots.length > 1 ? (
-                    <span className="block text-center text-muted-foreground">•</span>
+                    <span className="block text-center text-[var(--ink-muted)]">•</span>
                   ) : null}
                 </span>
               ),
@@ -102,8 +103,8 @@ function Body({ items, beats }: { items: Item[]; beats: number }) {
         if (item.kind === "section") {
           return (
             <div key={idx} className="col-span-full mb-1 mt-4 flex items-center gap-2 first:mt-0">
-              <span className="bg-foreground px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-background">{item.name}</span>
-              {item.note && <span className="text-xs italic text-muted-foreground">{item.note}</span>}
+              <span className="bg-[var(--ink)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">{item.name}</span>
+              {item.note && <span className="text-xs italic text-[var(--ink-muted)]">{item.note}</span>}
             </div>
           )
         }
@@ -165,17 +166,18 @@ export default function ChartPreview({ content }: { content: string }) {
   }, [song])
 
   return (
-    <div ref={box} className="max-h-[70vh] min-h-[380px] overflow-auto rounded-md border bg-background p-4" aria-label="Chart preview">
-      <div className="mb-3 flex items-start justify-between gap-4 border-b border-foreground/80 pb-2">
+    <div ref={box} className="paper max-h-[70vh] min-h-[380px] overflow-auto rounded-sm p-3 sm:p-5" aria-label="Chart preview">
+      {!content.trim() && <p className="py-24 text-center text-sm text-[var(--ink-muted)]">Your chart appears here as you write it.</p>}
+      <div className={cn("mb-3 flex items-start justify-between gap-4 border-b border-[var(--ink)] pb-2", !content.trim() && "hidden")}>
         <div className="min-w-0">
-          <div className="truncate text-xl font-bold">{song.title}</div>
+          <div className="text-lg leading-tight font-bold break-words sm:text-xl">{song.title}</div>
           {song.structure && (
-            <div className="text-xs text-muted-foreground">{song.structure.split(/\s*,\s*/).join("  ·  ")}</div>
+            <div className="text-xs text-[var(--ink-muted)]">{song.structure.split(/\s*,\s*/).join("  →  ")}</div>
           )}
         </div>
         <div className="shrink-0 text-right">
           {song.key && <div className="font-bold">Do = {song.key.replace(/b$/, "♭").replace(/#$/, "♯")}</div>}
-          {info && <div className="text-xs whitespace-pre text-muted-foreground">{info}</div>}
+          {info && <div className="text-xs whitespace-pre text-[var(--ink-muted)]">{info}</div>}
         </div>
       </div>
       <div ref={scaled}>

@@ -48,7 +48,8 @@ The app's input conventions, which the parser relies on:
 - `components/chart-editor.tsx` — the chart editor (CodeMirror 6): colours from `lineMarks`, problems from `lib/chart-lint.ts` underlined. Loaded with `next/dynamic` (`ssr: false`). Changes pushed in from outside (Smart Format, Import MIDI) are annotated so they aren't reported back as typing.
 - `lib/chart-lint.ts` — finds chords the parser can't read (with a suggestion: `Cmi7` → `Cm7`), bars with the wrong number of beats, and a missing `Do =` line.
 - `components/chart-preview.tsx` — live HTML preview in the grid style, from the same `parseSong` / `chordSegments` as the PDF. One CSS grid for the whole song; crowded bars get a smaller font; the bars zoom out to fit a narrow box.
-- `components/chord-transposer.tsx` — main page UI: editor + problems list + Open/Save .txt / Import MIDI on the left; Preview / Text tabs on the right (the preview shows `transposed || original`, which is what Export PDF prints). `app/advanced-export/page.tsx` — PDF settings + preview.
+- `components/chord-transposer.tsx` — main page. A toolbar (key with −/+ semitone, notation, Export PDF, PDF options), then the Chart panel (editor, New/File menus, Tidy spacing = Smart Format, Guide) and the Sheet panel (Preview / Text tabs). The sheet is **live**: an effect re-renders `transposed` whenever the chart, key or notation changes (there is no Transpose button); `transposed` stays empty while the sheet is the chart as written. `app/advanced-export/page.tsx` is "PDF options".
+- Look: a cool grey "desk" background, white panels, one ink-blue accent (`--primary`, also chord colour and focus). The preview is drawn as white paper with dark ink in both themes (`.paper` in `app/globals.css`), in the PDF's typeface.
 - `components/ui/` — generated shadcn/ui components; don't hand-edit.
 - `chord_transpose_gui_smart_format.py` — older Python desktop version, not used by the web app.
 

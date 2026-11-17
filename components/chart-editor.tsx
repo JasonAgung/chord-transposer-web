@@ -82,17 +82,16 @@ const highlighter = ViewPlugin.fromClass(
 )
 
 const theme = EditorView.theme({
+  // The editor sits inside a panel, which gives it its frame
   "&": {
     fontSize: "14px",
-    border: "1px solid var(--border)",
-    borderRadius: "0.5rem",
-    backgroundColor: "var(--background)",
+    backgroundColor: "transparent",
     color: "var(--foreground)",
   },
-  "&.cm-focused": { outline: "2px solid var(--ring)", outlineOffset: "-1px" },
+  "&.cm-focused": { outline: "none" },
   ".cm-scroller": {
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-    lineHeight: "1.65",
+    fontFamily: "var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+    lineHeight: "1.7",
     minHeight: "380px",
     maxHeight: "70vh",
   },
