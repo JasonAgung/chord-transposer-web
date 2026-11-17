@@ -4,6 +4,8 @@ import { PageSizes, PDFDocument, PDFFont, PDFPage, RGB, rgb, StandardFonts } fro
 import fontkit from "@pdf-lib/fontkit"
 import { isChordLine } from "./chords"
 import { SmartFormatter } from "./formatter"
+import { fetchFont } from "./fonts"
+import { createGridPdf } from "./pdf-grid"
 
 export type PdfFontFamily = "Helvetica" | "Courier"
 
@@ -51,12 +53,6 @@ interface Row {
 
 // A run of rows kept in one column when possible; a spacer is a blank line
 type Block = { spacer: true } | { spacer: false; rows: Row[] }
-
-async function fetchFont(file: string): Promise<ArrayBuffer> {
-  const res = await fetch(`/fonts/${file}`)
-  if (!res.ok) throw new Error(`Could not load font ${file}`)
-  return res.arrayBuffer()
-}
 
 async function embedFonts(
   pdfDoc: PDFDocument,
@@ -364,6 +360,14 @@ export async function createChartPdf(content: string, options: PdfOptions): Prom
   }
 
   return pdfDoc.save()
+}
+
+// "grid" draws each bar as a cell with chords at their beats; "classic" prints the chart text as written
+export type PdfStyle = "grid" | "classic"
+
+export function createPdf(content: string, options: PdfOptions & { style: PdfStyle }): Promise<Uint8Array> {
+  const { style, ...rest } = options
+  return style === "grid" ? createGridPdf(content, rest) : createChartPdf(content, rest)
 }
 
 export function pdfFileName(title: string): string {
